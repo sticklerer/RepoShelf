@@ -22,7 +22,9 @@ fi
 install -m 644 "$ROOT/server.py" "$APP_DIR/server.py"
 install -m 644 "$ROOT/desktop_app.py" "$APP_DIR/desktop_app.py"
 install -m 644 "$ROOT/requirements.txt" "$APP_DIR/requirements.txt"
-install -m 644 "$ROOT/assets/reposhelf.svg" "$APP_DIR/reposhelf.svg"
+install -m 755 "$ROOT/uninstall-linux.sh" "$APP_DIR/uninstall-linux.sh"
+mkdir -p "$APP_DIR/assets"
+install -m 644 "$ROOT/assets/reposhelf.svg" "$APP_DIR/assets/reposhelf.svg"
 mkdir -p "$APP_DIR/static"
 cp -R "$ROOT/static/." "$APP_DIR/static/"
 if [[ -f "$ROOT/data/state.json" && ! -e "$APP_DIR/data/state.json" ]]; then
@@ -39,7 +41,7 @@ Name=RepoShelf
 Comment=Browse and download jailbreak repository packages
 Exec="$APP_DIR/venv/bin/python" "$APP_DIR/desktop_app.py"
 TryExec=$APP_DIR/venv/bin/python
-Icon=$APP_DIR/reposhelf.svg
+Icon=$APP_DIR/assets/reposhelf.svg
 Terminal=false
 Categories=Utility;
 StartupNotify=true

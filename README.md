@@ -30,6 +30,16 @@ The installer creates a private Python environment, installs the packages listed
 
 The installed app and its downloaded packages are kept under `~/.local/share/reposhelf/` (or `$XDG_DATA_HOME/reposhelf/`). Re-running the installer to update the app preserves your saved settings and downloads.
 
+### Uninstall
+
+Use **Uninstall RepoShelf…** in the desktop window's toolbar or system-tray menu and choose whether to keep or delete saved settings and downloads. From a terminal, run the installed uninstaller:
+
+```sh
+~/.local/share/reposhelf/uninstall-linux.sh
+```
+
+The command removes the app and desktop launcher but keeps settings and downloaded packages. Add `--purge-data` to delete those too. If you cloned the repository, you can also run `./uninstall-linux.sh`; this removes the installed app, not the source checkout.
+
 ## Run the web server directly (optional)
 
 Requires Python 3.10 or newer and no third-party packages. This mode runs in a terminal, without the desktop window or tray.

@@ -7,7 +7,7 @@ import sys
 import threading
 from pathlib import Path
 
-from PyQt6.QtCore import QLockFile, QStandardPaths, QUrl
+from PyQt6.QtCore import QLockFile, QProcess, QTimer, QUrl
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QSystemTrayIcon,
+    QToolBar,
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
@@ -23,6 +24,7 @@ import server
 
 ROOT = Path(__file__).resolve().parent
 ICON_PATH = ROOT / "assets" / "reposhelf.svg"
+UNINSTALL_PATH = ROOT / "uninstall-linux.sh"
 APP_URL = "http://127.0.0.1:8765/"
 
 
@@ -41,6 +43,13 @@ class RepoShelfWindow(QMainWindow):
         self.web_view = QWebEngineView(self)
         self.web_view.setUrl(QUrl(APP_URL))
         self.setCentralWidget(self.web_view)
+
+        toolbar = QToolBar("App actions", self)
+        toolbar.setMovable(False)
+        self.addToolBar(toolbar)
+        uninstall_action = QAction("Uninstall RepoShelf…", self)
+        uninstall_action.triggered.connect(self.confirm_uninstall)
+        toolbar.addAction(uninstall_action)
 
         self._start_server()
         self._create_tray()
@@ -74,6 +83,9 @@ class RepoShelfWindow(QMainWindow):
         show_action = QAction("Open RepoShelf", self)
         show_action.triggered.connect(self.show_window)
         menu.addAction(show_action)
+        uninstall_action = QAction("Uninstall RepoShelf…", self)
+        uninstall_action.triggered.connect(self.confirm_uninstall)
+        menu.addAction(uninstall_action)
         menu.addSeparator()
         quit_action = QAction("Quit RepoShelf", self)
         quit_action.triggered.connect(self.quit_app)
@@ -106,6 +118,47 @@ class RepoShelfWindow(QMainWindow):
             )
             self._has_hidden = True
 
+    def confirm_uninstall(self) -> None:
+        if not UNINSTALL_PATH.is_file():
+            QMessageBox.critical(
+                self,
+                "Uninstaller not found",
+                "The RepoShelf uninstaller is missing. Reinstall the app to restore it.",
+            )
+            return
+
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Uninstall RepoShelf")
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setText("Remove RepoShelf from this computer?")
+        dialog.setInformativeText(
+            "Your repository settings and downloaded packages will be kept unless you choose to delete them."
+        )
+        keep_button = dialog.addButton(
+            "Uninstall, keep data", QMessageBox.ButtonRole.AcceptRole
+        )
+        delete_button = dialog.addButton(
+            "Uninstall and delete data", QMessageBox.ButtonRole.DestructiveRole
+        )
+        dialog.addButton(QMessageBox.StandardButton.Cancel)
+        dialog.exec()
+
+        clicked = dialog.clickedButton()
+        if clicked != keep_button and clicked != delete_button:
+            return
+
+        arguments = ["--purge-data"] if clicked == delete_button else []
+        started, _process_id = QProcess.startDetached(str(UNINSTALL_PATH), arguments)
+        if not started:
+            QMessageBox.critical(
+                self,
+                "Could not start the uninstaller",
+                "RepoShelf is still installed. You can run uninstall-linux.sh from a terminal.",
+            )
+            return
+
+        QTimer.singleShot(250, self.quit_app)
+
     def quit_app(self) -> None:
         if self._tray is not None:
             self._tray.hide()
@@ -123,15 +176,7 @@ def main() -> int:
     app.setWindowIcon(QIcon(str(ICON_PATH)))
     app.setQuitOnLastWindowClosed(False)
 
-    runtime_dir = QStandardPaths.writableLocation(
-        QStandardPaths.StandardLocation.RuntimeLocation
-    )
-    if not runtime_dir:
-        runtime_dir = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.CacheLocation
-        )
-    lock_path = Path(runtime_dir or Path.home() / ".cache" / "reposhelf") / "reposhelf.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = ROOT / "reposhelf.lock"
     lock = QLockFile(str(lock_path))
     if not lock.tryLock(0):
         QMessageBox.information(
