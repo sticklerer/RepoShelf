@@ -6,7 +6,7 @@ root="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
 version="${version#v}"
-rpm_version="${version/-/~}"
+rpm_version="$(printf '%s' "$version" | sed 's/-/~/')"
 mkdir -p "$work"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 git -C "$root" archive --format=tar --prefix=RepoShelf/ HEAD | gzip -n > "$work/SOURCES/reposhelf-source.tar.gz"
 rpmbuild -bb \

@@ -14,6 +14,9 @@ finish-args:
 modules:
   - name: reposhelf
     buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
     build-commands:
       - python3 -m pip install --prefix=/app --no-warn-script-location --break-system-packages PyQt6==6.8.1 PyQt6-WebEngine==6.8.0 keyring==25.6.0
       - install -Dm755 packaging/flatpak/reposhelf /app/bin/reposhelf

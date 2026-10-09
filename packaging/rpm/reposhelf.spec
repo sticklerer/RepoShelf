@@ -31,7 +31,3 @@ cp -a assets %{buildroot}%{_prefix}/lib/reposhelf/assets
 %{_datadir}/applications/reposhelf.desktop
 %{_datadir}/icons/hicolor/scalable/apps/io.github.sticklerer.RepoShelf.svg
 %{_prefix}/lib/reposhelf
-
-%changelog
-* Thu Oct 09 2026 RepoShelf contributors <reposhelf@users.noreply.github.com> - 0.1.0
-- Initial beta package

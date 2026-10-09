@@ -3,6 +3,12 @@ name: Build Linux release packages
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build and attach packages for
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -14,10 +20,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
       - name: Build deb package
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           mkdir -p dist
           packaging/build-deb.sh "$RELEASE_TAG"
@@ -33,12 +39,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
       - name: Install RPM build tools
         run: sudo apt-get update && sudo apt-get install --yes rpm
       - name: Build rpm package
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           mkdir -p dist
           packaging/build-rpm.sh "$RELEASE_TAG"
@@ -54,10 +60,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
       - name: Build Arch package and AUR metadata
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           mkdir -p dist
           docker run --rm \
@@ -74,9 +80,16 @@ jobs:
               curl --fail --location --retry 3 "$archive_url" -o /tmp/reposhelf-source.tar.gz
               checksum="$(sha256sum /tmp/reposhelf-source.tar.gz | cut -d " " -f 1)"
               mkdir -p /tmp/reposhelf-aur
-              sed -e "s/^pkgver=.*/pkgver=${pkgver}/" \
-                  -e "s/^sha256sums=.*/sha256sums=('${checksum}')/" \
-                  /workspace/packaging/arch/PKGBUILD > /tmp/reposhelf-aur/PKGBUILD
+          python - "$pkgver" "$checksum" /workspace/packaging/arch/PKGBUILD /tmp/reposhelf-aur/PKGBUILD <<'PY'
+          from pathlib import Path
+          import sys
+
+          pkgver, checksum, source, destination = sys.argv[1:]
+          content = Path(source).read_text(encoding="utf-8")
+          content = content.replace("pkgver=0.1.0_beta.1", f"pkgver={pkgver}")
+          content = content.replace("sha256sums=('@SHA256@')", f"sha256sums=(\"{checksum}\")")
+          Path(destination).write_text(content, encoding="utf-8")
+          PY
               useradd --create-home builder
               chown -R builder:builder /tmp/reposhelf-aur
               runuser -u builder -- bash -c "cd /tmp/reposhelf-aur && makepkg --printsrcinfo > .SRCINFO && makepkg --noconfirm"
@@ -97,16 +110,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
       - name: Install Flatpak build tools
         run: |
           sudo apt-get update
           sudo apt-get install --yes flatpak flatpak-builder
-          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install --system --assumeyes flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --assumeyes flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
       - name: Build Flatpak bundle
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           set -euo pipefail
           archive_url="https://github.com/sticklerer/RepoShelf/archive/refs/tags/${RELEASE_TAG}.tar.gz"
@@ -141,4 +154,5 @@ jobs:
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" release-assets/* --clobber
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
