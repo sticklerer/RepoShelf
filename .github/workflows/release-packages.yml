@@ -80,6 +80,7 @@ jobs:
               curl --fail --location --retry 3 "$archive_url" -o /tmp/reposhelf-source.tar.gz
               checksum="$(sha256sum /tmp/reposhelf-source.tar.gz | cut -d " " -f 1)"
               mkdir -p /tmp/reposhelf-aur
+              cp /tmp/reposhelf-source.tar.gz "/tmp/reposhelf-aur/RepoShelf-${pkgver}.tar.gz"
           python - "$pkgver" "$checksum" /workspace/packaging/arch/PKGBUILD /tmp/reposhelf-aur/PKGBUILD <<'PY'
           from pathlib import Path
           import sys
@@ -96,6 +97,7 @@ jobs:
               install -Dm644 /tmp/reposhelf-aur/PKGBUILD /workspace/dist/PKGBUILD
               install -Dm644 /tmp/reposhelf-aur/.SRCINFO /workspace/dist/.SRCINFO
               install -Dm644 /tmp/reposhelf-aur/*.pkg.tar.zst /workspace/dist/
+              install -Dm644 "/tmp/reposhelf-aur/RepoShelf-${pkgver}.tar.gz" /workspace/dist/
               tar -czf /workspace/dist/reposhelf-aur.tar.gz -C /tmp/reposhelf-aur PKGBUILD .SRCINFO
             '
       - uses: actions/upload-artifact@v4
