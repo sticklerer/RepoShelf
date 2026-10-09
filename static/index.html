@@ -225,7 +225,8 @@
       <div class="section-kicker">NEW SOURCE</div><h2>Add a repository</h2>
       <p>Paste the base URL for a jailbreak package repository. RepoShelf looks for its Packages index.</p>
       <label class="field-label" for="repo-url">REPOSITORY URL</label>
-      <input class="text-field" id="repo-url" type="url" placeholder="https://repo.example.com/" required>
+      <input class="text-field" id="repo-url" type="url" placeholder="https://repo.example.com/ or http://repo.example.com/" required>
+      <p class="auth-hint" id="http-source-notice" hidden>HTTP is unencrypted: package indexes and downloads can be read or changed in transit. Use HTTP only for public repositories you trust. Credentials and device details require HTTPS.</p>
       <label class="field-label" for="repo-auth-method">REPOSITORY AUTHORIZATION</label>
       <select class="text-field" id="repo-auth-method">
         <option value="none">Public repository</option>
@@ -272,7 +273,7 @@
         <p class="auth-hint">Sends model, iOS version, architecture, Sileo client headers, and device ID only to this HTTPS source.</p>
         </div>
       </div>
-      <p class="auth-hint">Credentials are kept in your desktop's secure keyring and sent only to this HTTPS repository host. Use only credentials and access granted by the provider.</p>
+      <p class="auth-hint">Credentials are kept in your desktop's secure keyring and sent only to HTTPS repository hosts. Use only credentials and access granted by the provider.</p>
       <div id="source-error" class="form-error" role="alert"></div>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close>Cancel</button><button class="primary-button" type="submit" id="source-submit">Add source</button></div>
     </form>

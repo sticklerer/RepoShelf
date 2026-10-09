@@ -338,18 +338,18 @@ def retry_after_seconds(value: str | None) -> float | None:
             return None
 
 
-def resolve_public_https_target(url: str) -> tuple[urllib.parse.SplitResult, tuple[str, ...]]:
+def resolve_public_repository_target(url: str) -> tuple[urllib.parse.SplitResult, tuple[str, ...]]:
     parsed = urllib.parse.urlsplit(url)
     if (
-        parsed.scheme.lower() != "https"
+        parsed.scheme.lower() not in ("http", "https")
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
         or parsed.fragment
     ):
-        raise ValueError("Repository requests must use a valid HTTPS URL.")
+        raise ValueError("Repository requests must use a valid HTTP or HTTPS URL.")
     try:
-        port = parsed.port if parsed.port is not None else 443
+        port = parsed.port if parsed.port is not None else (443 if parsed.scheme.lower() == "https" else 80)
     except ValueError as error:
         raise ValueError("Repository URL has an invalid port.") from error
     if port == 0:
@@ -374,10 +374,40 @@ def resolve_public_https_target(url: str) -> tuple[urllib.parse.SplitResult, tup
     return parsed, tuple(addresses)
 
 
-class PinnedHTTPSConnection(http.client.HTTPSConnection):
+def resolve_public_https_target(url: str) -> tuple[urllib.parse.SplitResult, tuple[str, ...]]:
+    return resolve_public_repository_target(url)
+
+
+class PinnedHTTPConnection(http.client.HTTPConnection):
     def __init__(self, host: str, *, addresses: tuple[str, ...], **kwargs):
         self._resolved_addresses = addresses
         super().__init__(host, **kwargs)
+
+    def connect(self):
+        if self._tunnel_host:
+            raise OSError("HTTPS proxy tunnels are disabled for repository requests.")
+        last_error = None
+        for address in self._resolved_addresses:
+            try:
+                sock = socket.create_connection(
+                    (address, self.port),
+                    self.timeout,
+                    self.source_address,
+                )
+            except OSError as error:
+                last_error = error
+                continue
+            self.sock = sock
+            return
+        if last_error:
+            raise last_error
+        raise OSError("No validated public address is available for the repository host.")
+
+
+class PinnedHTTPSConnection(PinnedHTTPConnection):
+    def __init__(self, host: str, *, addresses: tuple[str, ...], **kwargs):
+        self._context = kwargs.pop("context", ssl.create_default_context())
+        super().__init__(host, addresses=addresses, **kwargs)
 
     def connect(self):
         if self._tunnel_host:
@@ -406,21 +436,34 @@ class PinnedHTTPSConnection(http.client.HTTPSConnection):
 
 def open_public_response(
     url: str, headers: dict[str, str], timeout: int
-) -> tuple[PinnedHTTPSConnection, http.client.HTTPResponse]:
+) -> tuple[PinnedHTTPConnection, http.client.HTTPResponse]:
     current_url = url
     original_origin = None
     for redirect_count in range(6):
-        parsed, addresses = resolve_public_https_target(current_url)
+        request_scheme = urllib.parse.urlsplit(current_url).scheme.lower()
+        if request_scheme == "http":
+            lowered_headers = {name.lower(): value for name, value in headers.items()}
+            sensitive_headers = {"authorization", "x-unique-id", "x-machine", "x-firmware"}
+            if (
+                sensitive_headers.intersection(lowered_headers)
+                or any(name.startswith("sec-ch-ua") for name in lowered_headers)
+                or lowered_headers.get("user-agent", "").startswith("Sileo/")
+            ):
+                raise ValueError(
+                    "Credentials and device details cannot be sent over unencrypted HTTP."
+                )
+        parsed, addresses = resolve_public_repository_target(current_url)
         hostname = parsed.hostname.rstrip(".").lower()
         try:
             ipaddress.ip_address(hostname)
         except ValueError:
             hostname = hostname.encode("idna").decode("ascii")
-        port = parsed.port if parsed.port is not None else 443
-        origin = ("https", hostname, port)
+        scheme = parsed.scheme.lower()
+        port = parsed.port if parsed.port is not None else (443 if scheme == "https" else 80)
+        origin = (scheme, hostname, port)
         if original_origin is None:
             original_origin = origin
-        elif origin != original_origin:
+        if origin != original_origin:
             raise urllib.error.HTTPError(
                 current_url, 403, "Cross-origin repository redirects are blocked.", None, None
             )
@@ -431,12 +474,14 @@ def open_public_response(
         request_headers = dict(headers)
         request_headers["Host"] = host_header
         path = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
-        connection = PinnedHTTPSConnection(
+        connection_class = PinnedHTTPSConnection if scheme == "https" else PinnedHTTPConnection
+        connection_kwargs = {"context": ssl.create_default_context()} if scheme == "https" else {}
+        connection = connection_class(
             hostname,
             addresses=addresses,
             port=port,
             timeout=timeout,
-            context=ssl.create_default_context(),
+            **connection_kwargs,
         )
         try:
             connection.request("GET", path, headers=request_headers)
@@ -455,8 +500,19 @@ def open_public_response(
                 if redirected.port is not None
                 else (443 if redirected.scheme == "https" else 80)
             )
+            redirected_origin = (
+                redirected.scheme.lower(),
+                redirected_host,
+                redirected_port,
+            )
+            same_origin = redirected_origin == original_origin
+            secure_upgrade = (
+                original_origin[0] == "http"
+                and original_origin[2] == 80
+                and redirected_origin == ("https", original_origin[1], 443)
+            )
             if (
-                (redirected.scheme.lower(), redirected_host, redirected_port) != original_origin
+                (not same_origin and not secure_upgrade)
                 or redirected.username is not None
                 or redirected.password is not None
             ):
@@ -471,6 +527,8 @@ def open_public_response(
                 )
             response.close()
             connection.close()
+            if secure_upgrade:
+                original_origin = redirected_origin
             current_url = redirected_url
             continue
         if response.status in (301, 302, 303, 307, 308) and redirect_count == 5:
@@ -734,10 +792,16 @@ def requires_manual_device_identifier(url: str) -> bool:
     )
 
 
-def require_https_repository(url: str) -> urllib.parse.SplitResult:
+def require_repository_url(url: str) -> urllib.parse.SplitResult:
     parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme.lower() != "https" or not parsed.hostname:
-        raise ValueError("Repository sources must use HTTPS to protect package indexes and downloads.")
+    if (
+        parsed.scheme.lower() not in ("http", "https")
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise ValueError("Repository sources must use a valid HTTP or HTTPS URL.")
     try:
         parsed.port
     except ValueError as error:
@@ -758,7 +822,13 @@ def store_repo_device_identifier(repo_id: str, identifier: str) -> None:
 
 
 def repository_request_headers(repo: dict) -> dict[str, str]:
+    repository_scheme = urllib.parse.urlsplit(repo.get("url", "")).scheme.lower()
     method = repo.get("auth", {}).get("method", "none")
+    profile = repo.get("device_profile", {})
+    if repository_scheme == "http" and (method != "none" or profile.get("enabled")):
+        raise ValueError(
+            "HTTP repositories do not encrypt traffic. Credentials and device details can only be used with HTTPS."
+        )
     headers = {"User-Agent": USER_AGENT}
     if method != "none":
         try:
@@ -792,7 +862,6 @@ def repository_request_headers(repo: dict) -> dict[str, str]:
         except (KeyError, TypeError, json.JSONDecodeError) as error:
             raise ValueError(f"Could not read saved credentials for {repo['name']}.") from error
 
-    profile = repo.get("device_profile", {})
     if profile.get("enabled"):
         try:
             import keyring
@@ -951,12 +1020,15 @@ def package_icon(repo: dict, package: dict) -> tuple[bytes, str] | None:
             icon_url = urllib.parse.urljoin(repo["url"], icon_path)
         parsed_icon = urllib.parse.urlsplit(icon_url)
         parsed_repo = urllib.parse.urlsplit(repo["url"])
+        repo_scheme = parsed_repo.scheme.lower()
+        default_port = 443 if repo_scheme == "https" else 80
         same_origin = (
-            parsed_icon.hostname == parsed_repo.hostname
-            and (parsed_icon.port or 443) == (parsed_repo.port or 443)
+            parsed_icon.scheme.lower() == repo_scheme
+            and parsed_icon.hostname == parsed_repo.hostname
+            and (parsed_icon.port or default_port) == (parsed_repo.port or default_port)
         )
         if (
-            parsed_icon.scheme.lower() == "https"
+            (parsed_icon.scheme.lower() == "https" or same_origin)
             and parsed_icon.username is None
             and parsed_icon.password is None
             and not parsed_icon.fragment
@@ -1120,7 +1192,7 @@ def parse_packages(data: bytes) -> list[dict]:
 
 
 def refresh_repo(repo: dict) -> int:
-    require_https_repository(repo["url"])
+    require_repository_url(repo["url"])
     errors = []
     auth_headers = repository_request_headers(repo)
     for index_path in release_index_paths(repo["url"], auth_headers, repo["id"], repo):
@@ -1347,7 +1419,7 @@ def wait_for_download_control(job: dict) -> None:
 
 
 def download_package(repo: dict, package: dict, job: dict) -> None:
-    repo_url = require_https_repository(repo["url"])
+    repo_url = require_repository_url(repo["url"])
     identifier = package_id(repo["id"], package)
     existing = STATE["downloads"].get(identifier, {})
     if existing.get("version") == package["version"] and Path(existing.get("path", "")).is_file():
@@ -1358,7 +1430,7 @@ def download_package(repo: dict, package: dict, job: dict) -> None:
     package_url = urllib.parse.urljoin(repo["url"], encoded_filename)
     package_url_parts = urllib.parse.urlsplit(package_url)
     if (
-        package_url_parts.scheme.lower() != "https"
+        package_url_parts.scheme.lower() != repo_url.scheme.lower()
         or package_url_parts.hostname != repo_url.hostname
         or package_url_parts.port != repo_url.port
         or package_url_parts.username is not None
@@ -2014,20 +2086,24 @@ class Handler(BaseHTTPRequestHandler):
                 raw_url = str(data.get("url", "")).strip()
                 parsed = urllib.parse.urlparse(raw_url)
                 if (
-                    parsed.scheme.lower() != "https"
+                    parsed.scheme.lower() not in ("http", "https")
                     or not parsed.netloc
                     or parsed.username is not None
                     or parsed.password is not None
                     or parsed.fragment
                 ):
-                    raise ValueError("Enter a valid HTTPS repository URL.")
-                require_https_repository(raw_url)
+                    raise ValueError("Enter a valid HTTP or HTTPS repository URL.")
+                require_repository_url(raw_url)
                 auth = data.get("auth", {})
                 if not isinstance(auth, dict):
                     raise ValueError("Repository authorization settings are invalid.")
                 auth_method = auth.get("method", "none")
                 if auth_method not in ("none", "basic", "bearer"):
                     raise ValueError("Choose no authorization, username/password, or access token.")
+                if parsed.scheme.lower() == "http" and auth_method != "none":
+                    raise ValueError(
+                        "Repository credentials cannot be sent over unencrypted HTTP. Use HTTPS for private repositories."
+                    )
                 username = auth.get("username", "")
                 secret = auth.get("secret", "")
                 if auth_method == "basic" and (
@@ -2048,6 +2124,10 @@ class Handler(BaseHTTPRequestHandler):
                 normalized_profile = {"enabled": False}
                 device_identifier = ""
                 paid_repository = requires_manual_device_identifier(raw_url)
+                if parsed.scheme.lower() == "http" and (profile_enabled or paid_repository):
+                    raise ValueError(
+                        "HTTP repositories cannot use device details or paid-repository authorization. Use HTTPS for those sources."
+                    )
                 if paid_repository and not profile_enabled:
                     raise ValueError(
                         "Paid repositories require the Sileo-compatible profile and a manually entered authorized device ID."

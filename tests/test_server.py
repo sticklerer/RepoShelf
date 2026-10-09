@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 
 import server
 
-resolve_public_target = server.resolve_public_https_target
+resolve_public_target = server.resolve_public_repository_target
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -128,7 +128,7 @@ class RepoShelfTests(unittest.TestCase):
 
         self.resolver_patch = patch.object(
             server,
-            "resolve_public_https_target",
+            "resolve_public_repository_target",
             side_effect=resolve_fixture_or_public,
         )
         self.resolver_patch.start()
@@ -271,24 +271,18 @@ class RepoShelfTests(unittest.TestCase):
         self.assertNotIn((server.KEYRING_SERVICE, f"{repo_id}:device-id"), self.keyring_values)
         self.assertNotIn(repo_id, server.STATE["automation"]["per_repo_intervals_seconds"])
 
-    def test_http_repository_is_rejected_for_new_and_saved_sources(self):
+    def test_public_http_repository_can_be_added_and_refreshed(self):
         status, body = self.request_json(
             "/api/repos",
             "POST",
             {"url": self.fixture_url, "device_profile": {"enabled": False}},
         )
-        self.assertEqual(status, 400)
-        self.assertIn("HTTPS", body["error"])
-        with self.assertRaisesRegex(ValueError, "must use HTTPS"):
-            server.refresh_repo({"url": self.fixture_url})
-        with self.assertRaisesRegex(ValueError, "must use HTTPS"):
-            server.download_package(
-                {"id": "old-http", "url": self.fixture_url},
-                {"name": "fixture", "version": "1", "architecture": "all", "filename": "x.deb"},
-                {},
-            )
+        self.assertEqual(status, 201, body)
+        self.assertEqual(body["package_count"], 1)
+        self.assertEqual(server.STATE["repos"][0]["url"], self.fixture_url)
+        self.assertNotIn("Authorization", FixtureHandler.requests[0][1])
 
-    def test_public_https_resolver_rejects_private_or_mixed_dns_results(self):
+    def test_public_repository_resolver_rejects_private_or_mixed_dns_results(self):
         public_answer = [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
         ]
@@ -309,10 +303,53 @@ class RepoShelfTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "public IP"):
                 resolve_public_target("https://repo.example.test/")
 
-    def test_public_https_resolver_rejects_non_https_urls(self):
-        with self.assertRaisesRegex(ValueError, "valid HTTPS"):
-            resolve_public_target("http://repo.example.test/")
-        with self.assertRaisesRegex(ValueError, "valid HTTPS"):
+    def test_http_repository_rejects_credentials_and_device_profiles(self):
+        for payload in (
+            {
+                "url": self.fixture_url,
+                "auth": {"method": "bearer", "secret": "private-token"},
+                "device_profile": {"enabled": False},
+            },
+            {
+                "url": self.fixture_url,
+                "auth": {"method": "none"},
+                "device_profile": {"enabled": True},
+            },
+        ):
+            with self.subTest(payload=payload):
+                status, body = self.request_json("/api/repos", "POST", payload)
+                self.assertEqual(status, 400)
+                self.assertIn("HTTP", body["error"])
+        with self.assertRaisesRegex(ValueError, "HTTP repositories"):
+            server.repository_request_headers({
+                "id": "legacy-http",
+                "url": self.fixture_url,
+                "auth": {"method": "bearer"},
+                "device_profile": {"enabled": False},
+            })
+        self.open_response_patch.stop()
+        try:
+            with self.assertRaisesRegex(ValueError, "cannot be sent over unencrypted HTTP"):
+                server.open_public_response(
+                    self.fixture_url,
+                    {"Authorization": "Bearer secret"},
+                    timeout=5,
+                )
+        finally:
+            self.open_response_patch.start()
+
+    def test_public_repository_resolver_accepts_http_and_rejects_other_schemes(self):
+        public_answer = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80)),
+        ]
+        with patch.object(server.socket, "getaddrinfo", return_value=public_answer) as resolver:
+            parsed, addresses = resolve_public_target("http://repo.example.test/")
+        resolver.assert_called_once_with("repo.example.test", 80, type=socket.SOCK_STREAM)
+        self.assertEqual(parsed.scheme, "http")
+        self.assertEqual(addresses, ("93.184.216.34",))
+        with self.assertRaisesRegex(ValueError, "HTTP or HTTPS"):
+            resolve_public_target("ftp://repo.example.test/")
+        with self.assertRaisesRegex(ValueError, "HTTP or HTTPS"):
             server.resolve_public_https_target("https://user:pass@repo.example.test/")
 
     def test_local_server_rejects_rebinding_and_cross_origin_requests(self):
@@ -696,7 +733,7 @@ class RepoShelfTests(unittest.TestCase):
             with (
                 patch.object(
                     server,
-                    "resolve_public_https_target",
+                    "resolve_public_repository_target",
                     return_value=(
                         urllib.parse.urlsplit("https://repo.example.test/redirect"),
                         ("93.184.216.34",),
@@ -732,6 +769,38 @@ class RepoShelfTests(unittest.TestCase):
         )
         self.assertIs(connection.sock, context.wrap_socket.return_value)
 
+    def test_http_connection_uses_only_the_resolved_ip(self):
+        fake_socket = MagicMock()
+        connection = server.PinnedHTTPConnection(
+            "repo.example.test",
+            addresses=("93.184.216.34",),
+            port=80,
+            timeout=3,
+        )
+        with patch.object(server.socket, "create_connection", return_value=fake_socket) as connect:
+            connection.connect()
+
+        connect.assert_called_once_with(("93.184.216.34", 80), 3, None)
+        self.assertIs(connection.sock, fake_socket)
+
+    def test_open_public_response_serves_pinned_http_repository(self):
+        self.open_response_patch.stop()
+        connection = response = None
+        try:
+            connection, response = server.open_public_response(
+                urllib.parse.urljoin(self.fixture_url, "cache"),
+                {},
+                timeout=5,
+            )
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), b"cached body")
+        finally:
+            if response:
+                response.close()
+            if connection:
+                connection.close()
+            self.open_response_patch.start()
+
     def test_server_cooldown_never_attempts_early_or_sleeps_unbounded(self):
         host = urllib.parse.urlparse(self.fixture_url).netloc.lower()
         limiter = server.host_limiter(host)
@@ -755,7 +824,7 @@ class RepoShelfTests(unittest.TestCase):
             "device_profile": {"enabled": False},
             "packages": [],
         }
-        with patch.object(server, "require_https_repository", return_value=urllib.parse.urlsplit(self.fixture_url)):
+        with patch.object(server, "require_repository_url", return_value=urllib.parse.urlsplit(self.fixture_url)):
             self.assertEqual(server.refresh_repo(repo), 1)
         self.assertEqual(repo["packages"][0]["name"], "fixture.package")
         self.assertEqual(repo["packages"][0]["display_name"], "Fixture Package")

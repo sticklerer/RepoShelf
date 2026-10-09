@@ -664,15 +664,24 @@ function showSourceDialog() {
 
 function updateAuthFields() {
   const method = $("#repo-auth-method").value;
-  $("#repo-basic-fields").hidden = method !== "basic";
-  $("#repo-token-fields").hidden = method !== "bearer";
-  $("#repo-username").required = method === "basic";
-  $("#repo-password").required = method === "basic";
-  $("#repo-access-token").required = method === "bearer";
+  const insecure = isInsecureHttpRepository($("#repo-url").value);
+  for (const option of $("#repo-auth-method").options) {
+    option.disabled = insecure && option.value !== "none";
+  }
+  if (insecure && method !== "none") {
+    $("#repo-auth-method").value = "none";
+  }
+  const selectedMethod = $("#repo-auth-method").value;
+  $("#repo-basic-fields").hidden = selectedMethod !== "basic";
+  $("#repo-token-fields").hidden = selectedMethod !== "bearer";
+  $("#repo-username").required = selectedMethod === "basic";
+  $("#repo-password").required = selectedMethod === "basic";
+  $("#repo-access-token").required = selectedMethod === "bearer";
 }
 
 function updateDeviceProfileFields() {
-  const enabled = $("#device-profile-enabled").checked;
+  const insecure = isInsecureHttpRepository($("#repo-url").value);
+  const enabled = !insecure && $("#device-profile-enabled").checked;
   const paid = requiresManualDeviceId($("#repo-url").value);
   $("#device-info-section").hidden = state.settings.show_device_info_on_add === false && !paid;
   const fieldsVisible = !$("#device-info-section").hidden;
@@ -680,15 +689,24 @@ function updateDeviceProfileFields() {
   $("#device-model").required = enabled && fieldsVisible;
   $("#device-os-version").required = enabled && fieldsVisible;
   $("#device-client-version").required = enabled && fieldsVisible;
-  $("#device-profile-enabled").disabled = paid;
-  $("#generate-add-profile").disabled = paid || !enabled;
-  $("#manual-device-id").disabled = paid;
+  $("#device-profile-enabled").disabled = paid || insecure;
+  $("#generate-add-profile").disabled = paid || insecure || !enabled;
+  $("#manual-device-id").disabled = paid || insecure;
   $("#device-id-value").readOnly = !$("#manual-device-id").checked;
   $("#device-id-value").required = enabled && fieldsVisible && $("#manual-device-id").checked;
-  $("#paid-repo-notice").hidden = !requiresManualDeviceId($("#repo-url").value);
+  $("#paid-repo-notice").hidden = !paid;
+  $("#http-source-notice").hidden = !insecure;
   $("#device-id-hint").textContent = $("#manual-device-id").checked
     ? "Enter the device ID already authorized with this paid repository. RepoShelf stores it in your OS keyring."
     : "A random 40-character archive ID is generated once and stored in your OS keyring. It is not read from or tied to a physical phone.";
+}
+
+function isInsecureHttpRepository(url) {
+  try {
+    return new URL(url).protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 function requiresManualDeviceId(url) {
@@ -703,16 +721,20 @@ function requiresManualDeviceId(url) {
 }
 
 function updatePaidRepositoryMode() {
+  const insecure = isInsecureHttpRepository($("#repo-url").value);
   if (requiresManualDeviceId($("#repo-url").value)) {
     if (!$("#manual-device-id").checked) $("#device-id-value").value = "";
     $("#manual-device-id").checked = true;
-    $("#device-profile-enabled").checked = true;
+    $("#device-profile-enabled").checked = !insecure;
     $("#manual-device-id").disabled = true;
     $("#device-profile-enabled").disabled = true;
   } else {
     $("#manual-device-id").disabled = false;
-    $("#device-profile-enabled").disabled = false;
+    if (!insecure) $("#device-profile-enabled").checked = true;
+    $("#device-profile-enabled").disabled = insecure;
+    if (insecure) $("#device-profile-enabled").checked = false;
   }
+  updateAuthFields();
   updateDeviceProfileFields();
 }
 
