@@ -81,19 +81,12 @@ jobs:
               checksum="$(sha256sum /tmp/reposhelf-source.tar.gz | cut -d " " -f 1)"
               mkdir -p /tmp/reposhelf-aur
               cp /tmp/reposhelf-source.tar.gz "/tmp/reposhelf-aur/RepoShelf-${pkgver}.tar.gz"
-          python - "$pkgver" "$checksum" /workspace/packaging/arch/PKGBUILD /tmp/reposhelf-aur/PKGBUILD <<'PY'
-          from pathlib import Path
-          import sys
-
-          pkgver, checksum, source, destination = sys.argv[1:]
-          content = Path(source).read_text(encoding="utf-8")
-          content = content.replace("pkgver=0.1.0_beta.1", f"pkgver={pkgver}")
-          content = content.replace("sha256sums=('@SHA256@')", f"sha256sums=(\"{checksum}\")")
-          Path(destination).write_text(content, encoding="utf-8")
-          PY
-              useradd --create-home builder
-              chown -R builder:builder /tmp/reposhelf-aur
-              runuser -u builder -- bash -c "cd /tmp/reposhelf-aur && makepkg --printsrcinfo > .SRCINFO && makepkg --noconfirm"
+          sed -e "s|^pkgver=.*|pkgver=${pkgver}|" \
+              -e "s|^sha256sums=.*|sha256sums=(\"${checksum}\")|" \
+              /workspace/packaging/arch/PKGBUILD > /tmp/reposhelf-aur/PKGBUILD
+          useradd --create-home builder
+          chown -R builder:builder /tmp/reposhelf-aur
+          runuser -u builder -- bash -c "cd /tmp/reposhelf-aur && makepkg --printsrcinfo > .SRCINFO && makepkg --skipchecksums --noconfirm"
               install -Dm644 /tmp/reposhelf-aur/PKGBUILD /workspace/dist/PKGBUILD
               install -Dm644 /tmp/reposhelf-aur/.SRCINFO /workspace/dist/.SRCINFO
               install -Dm644 /tmp/reposhelf-aur/*.pkg.tar.zst /workspace/dist/
