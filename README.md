@@ -6,12 +6,17 @@ RepoShelf is a small local web app for browsing iOS jailbreak package repositori
 
 RepoShelf opens in its own desktop window and adds a system-tray icon. Closing the window hides it; choose **Quit RepoShelf** from the tray menu to stop it.
 
-1. Install Python 3 and its virtual-environment support. On Debian or Ubuntu:
+1. Install Python 3 and virtual-environment support using your distribution's package manager:
 
-   ```sh
-   sudo apt update
-   sudo apt install python3 python3-venv
-   ```
+   | Distribution | Install command |
+   | --- | --- |
+   | Debian, Ubuntu, Linux Mint | `sudo apt update && sudo apt install python3 python3-venv` |
+   | Fedora | `sudo dnf install python3` |
+   | Arch Linux, Manjaro | `sudo pacman -S python` |
+   | openSUSE | `sudo zypper install python3 python3-pip` |
+   | Alpine Linux | `sudo apk add python3 py3-pip` |
+
+   The installer creates a virtual environment with `python3 -m venv`. If your distribution packages that support separately, install its Python venv package too.
 
 2. Download the source and install the desktop launcher:
 
