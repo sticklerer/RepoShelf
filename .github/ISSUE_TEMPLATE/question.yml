@@ -1,0 +1,31 @@
+name: Question or help
+description: Ask for help using RepoShelf or clarify how a feature works.
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For bugs, use **Bug report**. Do not include passwords, access tokens, or private repository credentials.
+  - type: textarea
+    id: question
+    attributes:
+      label: What do you need help with?
+      description: Include what you were trying to do and what you have already tried.
+      placeholder: I am trying to ... and ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: RepoShelf version
+      placeholder: "0.1.0-beta.1"
+    validations:
+      required: false
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04"
+    validations:
+      required: false

@@ -1,0 +1,52 @@
+name: Bug report
+description: Report something that is not working as expected.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues before submitting. Do not include passwords, access tokens, or private repository credentials.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected to happen.
+      placeholder: Tell us what you saw and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the steps that consistently trigger the problem.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. See the error
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: RepoShelf version
+      description: Include the release version or commit if known.
+      placeholder: "0.1.0-beta.1"
+    validations:
+      required: false
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system
+      description: Include your distribution and version.
+      placeholder: "Ubuntu 24.04"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Add relevant error messages or screenshots. Remove sensitive information first.
+      render: shell
+    validations:
+      required: false
