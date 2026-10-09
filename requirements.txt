@@ -1,0 +1,4 @@
+# Dependencies for the Linux desktop window and embedded browser.
+# The local web server itself uses only the Python standard library.
+PyQt6>=6.7,<7
+PyQt6-WebEngine>=6.7,<7
