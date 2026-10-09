@@ -146,6 +146,15 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+      - name: Normalize release asset filenames
+        working-directory: release-assets
+        run: |
+          for file in *; do
+            normalized="${file//\~/.}"
+            if [[ "$normalized" != "$file" ]]; then
+              mv -- "$file" "$normalized"
+            fi
+          done
       - name: Generate package checksums
         working-directory: release-assets
         run: sha256sum -- * > SHA256SUMS

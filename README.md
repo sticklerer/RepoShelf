@@ -36,13 +36,13 @@ The [GitHub Releases page](https://github.com/sticklerer/RepoShelf/releases) pro
 
 | System | Install the downloaded release file |
 | --- | --- |
-| Debian, Ubuntu, Linux Mint | `sudo apt install ./reposhelf_VERSION_amd64.deb` |
-| Fedora | `sudo dnf install ./reposhelf-VERSION-1.x86_64.rpm` |
+| Debian, Ubuntu, Linux Mint | `sudo apt install ./reposhelf_*_amd64.deb` |
+| Fedora | `sudo dnf install ./reposhelf-*.rpm` |
 | Arch Linux | `sudo pacman -U ./reposhelf-*-any.pkg.tar.zst` |
 | Arch Linux with yay | `yay -U ./reposhelf-*-any.pkg.tar.zst` |
 | Flatpak | `flatpak install --user --bundle ./RepoShelf.flatpak io.github.sticklerer.RepoShelf` |
 
-Replace `VERSION` with the version in the asset name. Flatpak requires the Flathub remote for the Freedesktop 24.08 runtime. The Arch release also includes `reposhelf-aur.tar.gz` with a hash-pinned `PKGBUILD` and `.SRCINFO`; extract it and run `makepkg -si` to build and install from source. `yay` uses the same Arch package and PKGBUILD; it is not a separate package format or an AUR listing.
+Flatpak requires the Flathub remote for the Freedesktop 24.08 runtime. The Arch release also includes `reposhelf-aur.tar.gz` with a hash-pinned `PKGBUILD` and `.SRCINFO`; extract it and run `makepkg -si` to build and install from source. `yay` uses the same Arch package and PKGBUILD; it is not a separate package format or an AUR listing.
 
 Package-manager installations keep per-user settings and downloads in `~/.local/share/reposhelf/`; remove the application using the same package manager. The source installer remains available as an alternative and updates its own installation.
 
