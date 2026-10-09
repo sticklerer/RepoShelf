@@ -8,6 +8,7 @@ import bz2
 import email.utils
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import http.client
 import gzip
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,12 +20,13 @@ import math
 import os
 from pathlib import Path
 import re
+import socket
+import ssl
 import threading
 import time
 import traceback
 import urllib.error
 import urllib.parse
-import urllib.request
 import uuid
 
 
@@ -114,6 +116,151 @@ def retry_after_seconds(value: str | None) -> float | None:
             return None
 
 
+def resolve_public_https_target(url: str) -> tuple[urllib.parse.SplitResult, tuple[str, ...]]:
+    parsed = urllib.parse.urlsplit(url)
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise ValueError("Repository requests must use a valid HTTPS URL.")
+    try:
+        port = parsed.port if parsed.port is not None else 443
+    except ValueError as error:
+        raise ValueError("Repository URL has an invalid port.") from error
+    if port == 0:
+        raise ValueError("Repository URL has an invalid port.")
+
+    hostname = parsed.hostname.rstrip(".").lower()
+    try:
+        answers = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as error:
+        raise ValueError(f"Could not resolve repository host {hostname}: {error}") from error
+    addresses = list(dict.fromkeys(answer[4][0] for answer in answers))
+    if not addresses:
+        raise ValueError(f"Repository host {hostname} did not resolve to an address.")
+    try:
+        parsed_addresses = [ipaddress.ip_address(address.split("%", 1)[0]) for address in addresses]
+    except ValueError as error:
+        raise ValueError(f"Repository host {hostname} resolved to an invalid address.") from error
+    if any(not address.is_global for address in parsed_addresses):
+        raise ValueError(
+            "Repository hosts must resolve only to public IP addresses; local and private network targets are blocked."
+        )
+    return parsed, tuple(addresses)
+
+
+class PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host: str, *, addresses: tuple[str, ...], **kwargs):
+        self._resolved_addresses = addresses
+        super().__init__(host, **kwargs)
+
+    def connect(self):
+        if self._tunnel_host:
+            raise OSError("HTTPS proxy tunnels are disabled for repository requests.")
+        last_error = None
+        for address in self._resolved_addresses:
+            try:
+                sock = socket.create_connection(
+                    (address, self.port),
+                    self.timeout,
+                    self.source_address,
+                )
+            except OSError as error:
+                last_error = error
+                continue
+            try:
+                self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+            except OSError:
+                sock.close()
+                raise
+            return
+        if last_error:
+            raise last_error
+        raise OSError("No validated public address is available for the repository host.")
+
+
+def open_public_response(
+    url: str, headers: dict[str, str], timeout: int
+) -> tuple[PinnedHTTPSConnection, http.client.HTTPResponse]:
+    current_url = url
+    original_origin = None
+    for redirect_count in range(6):
+        parsed, addresses = resolve_public_https_target(current_url)
+        hostname = parsed.hostname.rstrip(".").lower()
+        try:
+            ipaddress.ip_address(hostname)
+        except ValueError:
+            hostname = hostname.encode("idna").decode("ascii")
+        port = parsed.port if parsed.port is not None else 443
+        origin = ("https", hostname, port)
+        if original_origin is None:
+            original_origin = origin
+        elif origin != original_origin:
+            raise urllib.error.HTTPError(
+                current_url, 403, "Cross-origin repository redirects are blocked.", None, None
+            )
+
+        host_header = f"[{hostname}]" if ":" in hostname else hostname
+        if port != 443:
+            host_header += f":{port}"
+        request_headers = dict(headers)
+        request_headers["Host"] = host_header
+        path = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
+        connection = PinnedHTTPSConnection(
+            hostname,
+            addresses=addresses,
+            port=port,
+            timeout=timeout,
+            context=ssl.create_default_context(),
+        )
+        try:
+            connection.request("GET", path, headers=request_headers)
+            response = connection.getresponse()
+        except (OSError, http.client.HTTPException) as error:
+            connection.close()
+            raise urllib.error.URLError(error) from error
+
+        location = response.getheader("Location")
+        if response.status in (301, 302, 303, 307, 308) and location:
+            redirected_url = urllib.parse.urljoin(current_url, location)
+            redirected = urllib.parse.urlsplit(redirected_url)
+            redirected_host = (redirected.hostname or "").rstrip(".").lower()
+            redirected_port = (
+                redirected.port
+                if redirected.port is not None
+                else (443 if redirected.scheme == "https" else 80)
+            )
+            if (
+                (redirected.scheme.lower(), redirected_host, redirected_port) != original_origin
+                or redirected.username is not None
+                or redirected.password is not None
+            ):
+                response.close()
+                connection.close()
+                raise urllib.error.HTTPError(
+                    redirected_url,
+                    403,
+                    "Cross-origin repository redirects are blocked.",
+                    response.headers,
+                    None,
+                )
+            response.close()
+            connection.close()
+            current_url = redirected_url
+            continue
+        if response.status in (301, 302, 303, 307, 308) and redirect_count == 5:
+            response.close()
+            connection.close()
+            raise urllib.error.HTTPError(
+                current_url, 310, "Too many repository redirects.", None, None
+            )
+        return connection, response
+    raise urllib.error.HTTPError(url, 310, "Too many repository redirects.", None, None)
+
+
 def cache_paths(url: str, scope: str = "public") -> tuple[Path, Path]:
     key = hashlib.sha256(f"{scope}\0{url}".encode("utf-8")).hexdigest()
     return HTTP_CACHE_DIR / f"{key}.body", HTTP_CACHE_DIR / f"{key}.json"
@@ -198,7 +345,7 @@ def response_cache_metadata(response, *, previous: dict | None = None) -> dict:
 
 @contextmanager
 def polite_response(url: str, headers: dict[str, str], timeout: int):
-    parsed_url = urllib.parse.urlparse(url)
+    parsed_url = urllib.parse.urlsplit(url)
     host = parsed_url.netloc.lower()
     limiter = host_limiter(host)
     with limiter["lock"]:
@@ -214,12 +361,23 @@ def polite_response(url: str, headers: dict[str, str], timeout: int):
                 time.sleep(delay)
             limiter["next_request"] = time.monotonic() + HOST_REQUEST_INTERVAL
 
-            request = urllib.request.Request(url, headers=headers)
+            connection = None
             try:
-                opener = urllib.request.build_opener(SameOriginRedirectHandler())
-                response = opener.open(request, timeout=timeout)
+                connection, response = open_public_response(url, headers, timeout)
+                if response.status >= 300:
+                    raise urllib.error.HTTPError(
+                        url,
+                        response.status,
+                        response.reason,
+                        response.headers,
+                        response,
+                    )
             except urllib.error.HTTPError as error:
-                retry_after = retry_after_seconds(error.headers.get("Retry-After"))
+                if connection:
+                    connection.close()
+                retry_after = retry_after_seconds(
+                    error.headers.get("Retry-After") if error.headers else None
+                )
                 if error.code == 429:
                     if retry_after is None:
                         retry_after = min(2 ** attempt, MAX_AUTOMATIC_RETRY_WAIT + 1)
@@ -262,6 +420,7 @@ def polite_response(url: str, headers: dict[str, str], timeout: int):
                 yield response
             finally:
                 response.close()
+                connection.close()
             return
 
     raise RuntimeError(f"Request retries exhausted for {url}")
@@ -277,26 +436,6 @@ def read_limited_body(response, url: str, limit: int) -> bytes:
         if len(chunks) > limit:
             raise ValueError(f"Response from {url} exceeds the {limit // (1024 * 1024)} MB limit")
     return bytes(chunks)
-
-
-class SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
-        source = urllib.parse.urlparse(request.full_url)
-        destination = urllib.parse.urlparse(new_url)
-        source_origin = (source.scheme.lower(), source.hostname, source.port)
-        destination_origin = (destination.scheme.lower(), destination.hostname, destination.port)
-        if source_origin != destination_origin:
-            file_pointer.close()
-            raise urllib.error.HTTPError(
-                new_url,
-                403,
-                "Cross-origin redirect blocked to protect repository credentials",
-                headers,
-                None,
-            )
-        return super().redirect_request(
-            request, file_pointer, code, message, headers, new_url
-        )
 
 
 def store_repo_credentials(repo_id: str, method: str, username: str = "", secret: str = "") -> None:

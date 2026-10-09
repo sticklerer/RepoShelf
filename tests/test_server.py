@@ -6,6 +6,7 @@ from io import BytesIO
 import json
 import lzma
 import sys
+import socket
 import tempfile
 import threading
 import time
@@ -16,9 +17,11 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import server
+
+resolve_public_target = server.resolve_public_https_target
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -116,6 +119,22 @@ class RepoShelfTests(unittest.TestCase):
         )
         self.keyring_patch = patch.dict(sys.modules, {"keyring": self.keyring})
         self.keyring_patch.start()
+        def resolve_fixture_or_public(url):
+            parsed = urllib.parse.urlsplit(url)
+            if parsed.scheme == "http" and parsed.hostname == "127.0.0.1":
+                return parsed, ("127.0.0.1",)
+            return resolve_public_target(url)
+
+        self.resolver_patch = patch.object(
+            server,
+            "resolve_public_https_target",
+            side_effect=resolve_fixture_or_public,
+        )
+        self.resolver_patch.start()
+        self.open_response_patch = patch.object(
+            server, "open_public_response", side_effect=self.fixture_open_response
+        )
+        self.open_response_patch.start()
         self.tempdir = tempfile.TemporaryDirectory()
         self.cache_patch = patch.object(
             server, "HTTP_CACHE_DIR", Path(self.tempdir.name) / "http_cache"
@@ -162,11 +181,21 @@ class RepoShelfTests(unittest.TestCase):
             self.data_patch,
             self.state_patch,
             self.interval_patch,
+            self.open_response_patch,
             self.cache_patch,
+            self.resolver_patch,
             self.keyring_patch,
         ):
             active_patch.stop()
         self.tempdir.cleanup()
+
+    def fixture_open_response(self, url, headers, timeout):
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            response = urllib.request.urlopen(request, timeout=timeout)
+        except urllib.error.HTTPError as error:
+            return error, error
+        return response, response
 
     def request_json(self, path, method="GET", payload=None, headers=None):
         data = json.dumps(payload).encode() if payload is not None else None
@@ -252,6 +281,33 @@ class RepoShelfTests(unittest.TestCase):
                 {"name": "fixture", "version": "1", "architecture": "all", "filename": "x.deb"},
                 {},
             )
+
+    def test_public_https_resolver_rejects_private_or_mixed_dns_results(self):
+        public_answer = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+        ]
+        with patch.object(server.socket, "getaddrinfo", return_value=public_answer):
+            parsed, addresses = resolve_public_target("https://repo.example.test/")
+        self.assertEqual(parsed.hostname, "repo.example.test")
+        self.assertEqual(addresses, ("93.184.216.34",))
+
+        private_answer = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443)),
+        ]
+        with patch.object(server.socket, "getaddrinfo", return_value=private_answer):
+            with self.assertRaisesRegex(ValueError, "public IP"):
+                resolve_public_target("https://repo.example.test/")
+
+        mixed_answers = public_answer + private_answer
+        with patch.object(server.socket, "getaddrinfo", return_value=mixed_answers):
+            with self.assertRaisesRegex(ValueError, "public IP"):
+                resolve_public_target("https://repo.example.test/")
+
+    def test_public_https_resolver_rejects_non_https_urls(self):
+        with self.assertRaisesRegex(ValueError, "valid HTTPS"):
+            resolve_public_target("http://repo.example.test/")
+        with self.assertRaisesRegex(ValueError, "valid HTTPS"):
+            server.resolve_public_https_target("https://user:pass@repo.example.test/")
 
     def test_local_server_rejects_rebinding_and_cross_origin_requests(self):
         status, _ = self.request_json(
@@ -403,11 +459,56 @@ class RepoShelfTests(unittest.TestCase):
                     server.decompress_index(compressed, name)
 
     def test_cross_origin_redirect_is_blocked(self):
-        with self.assertRaises(urllib.error.HTTPError) as raised:
-            server.fetch_bytes(
-                urllib.parse.urljoin(self.fixture_url, "redirect"), 1024, cache=False
-            )
+        response = SimpleNamespace(
+            status=302,
+            headers={},
+            getheader=lambda name: (
+                "https://attacker.example/private" if name == "Location" else None
+            ),
+            close=lambda: None,
+        )
+        connection = MagicMock()
+        connection.getresponse.return_value = response
+        self.open_response_patch.stop()
+        try:
+            with (
+                patch.object(
+                    server,
+                    "resolve_public_https_target",
+                    return_value=(
+                        urllib.parse.urlsplit("https://repo.example.test/redirect"),
+                        ("93.184.216.34",),
+                    ),
+                ),
+                patch.object(server, "PinnedHTTPSConnection", return_value=connection),
+                self.assertRaises(urllib.error.HTTPError) as raised,
+            ):
+                server.open_public_response(
+                    "https://repo.example.test/redirect", {}, timeout=5
+                )
+        finally:
+            self.open_response_patch.start()
         self.assertEqual(raised.exception.code, 403)
+        raised.exception.close()
+
+    def test_https_connection_uses_only_the_resolved_ip(self):
+        fake_socket = MagicMock()
+        context = MagicMock()
+        connection = server.PinnedHTTPSConnection(
+            "repo.example.test",
+            addresses=("93.184.216.34",),
+            port=443,
+            timeout=3,
+            context=context,
+        )
+        with patch.object(server.socket, "create_connection", return_value=fake_socket) as connect:
+            connection.connect()
+
+        connect.assert_called_once_with(("93.184.216.34", 443), 3, None)
+        context.wrap_socket.assert_called_once_with(
+            fake_socket, server_hostname="repo.example.test"
+        )
+        self.assertIs(connection.sock, context.wrap_socket.return_value)
 
     def test_server_cooldown_never_attempts_early_or_sleeps_unbounded(self):
         host = urllib.parse.urlparse(self.fixture_url).netloc.lower()
