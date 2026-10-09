@@ -1,0 +1,10 @@
+Package: reposhelf
+Version: 0.1.0~beta1
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: python3, python3-pyqt6, python3-pyqt6.qtwebengine, python3-keyring
+Maintainer: RepoShelf contributors <reposhelf@users.noreply.github.com>
+Description: Local desktop package manager for iOS jailbreak repositories
+ RepoShelf browses jailbreak package sources and downloads packages to a
+ local library. This AI-generated software is an early beta release.

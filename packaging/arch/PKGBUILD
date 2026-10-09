@@ -1,0 +1,21 @@
+pkgname=reposhelf
+pkgver=0.1.0_beta.1
+pkgrel=1
+pkgdesc='Local desktop package manager for iOS jailbreak repositories'
+arch=('any')
+url='https://github.com/sticklerer/RepoShelf'
+license=('unknown')
+depends=('python' 'python-pyqt6' 'python-pyqt6-webengine' 'python-keyring')
+source=("RepoShelf-${pkgver}.tar.gz::https://github.com/sticklerer/RepoShelf/archive/refs/tags/v${pkgver//_/-}.tar.gz")
+sha256sums=('@SHA256@')
+
+package() {
+  cd "$srcdir/RepoShelf-${pkgver//_/-}"
+  install -Dm755 packaging/reposhelf "$pkgdir/usr/bin/reposhelf"
+  install -Dm644 packaging/reposhelf.desktop "$pkgdir/usr/share/applications/reposhelf.desktop"
+  install -Dm644 assets/reposhelf.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.sticklerer.RepoShelf.svg"
+  install -Dm644 server.py "$pkgdir/usr/lib/reposhelf/server.py"
+  install -Dm644 desktop_app.py "$pkgdir/usr/lib/reposhelf/desktop_app.py"
+  cp -a static "$pkgdir/usr/lib/reposhelf/static"
+  cp -a assets "$pkgdir/usr/lib/reposhelf/assets"
+}

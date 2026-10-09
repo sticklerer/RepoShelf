@@ -1,0 +1,31 @@
+app-id: io.github.sticklerer.RepoShelf
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: reposhelf
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=x11
+  - --socket=wayland
+  - --socket=session-bus
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.kde.StatusNotifierWatcher
+modules:
+  - name: reposhelf
+    buildsystem: simple
+    build-commands:
+      - python3 -m pip install --prefix=/app --no-warn-script-location --break-system-packages PyQt6==6.8.1 PyQt6-WebEngine==6.8.0 keyring==25.6.0
+      - install -Dm755 packaging/flatpak/reposhelf /app/bin/reposhelf
+      - install -Dm644 packaging/flatpak/io.github.sticklerer.RepoShelf.desktop /app/share/applications/io.github.sticklerer.RepoShelf.desktop
+      - install -Dm644 packaging/flatpak/io.github.sticklerer.RepoShelf.metainfo.xml /app/share/metainfo/io.github.sticklerer.RepoShelf.metainfo.xml
+      - install -Dm644 assets/reposhelf.svg /app/share/icons/hicolor/scalable/apps/io.github.sticklerer.RepoShelf.svg
+      - install -Dm644 server.py /app/lib/reposhelf/server.py
+      - install -Dm644 desktop_app.py /app/lib/reposhelf/desktop_app.py
+      - cp -a static /app/lib/reposhelf/static
+      - cp -a assets /app/lib/reposhelf/assets
+    sources:
+      - type: archive
+        url: https://github.com/sticklerer/RepoShelf/archive/refs/tags/@TAG@.tar.gz
+        sha256: '@SHA256@'
+        strip-components: 1

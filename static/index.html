@@ -16,7 +16,10 @@
       </a>
       <div class="side-label">LIBRARY</div>
       <button class="nav-item active" id="all-packages-nav"><span class="nav-icon">▦</span> All packages <span class="nav-count" id="nav-package-count">0</span></button>
-      <div class="side-label repo-side-title">SOURCES <button id="sidebar-add" class="icon-button" title="Add source">＋</button></div>
+      <button class="nav-item" id="queue-nav"><span class="nav-icon">⇅</span> Download queue <span class="nav-count" id="nav-queue-count">0</span></button>
+      <button class="nav-item" id="automation-nav"><span class="nav-icon">↻</span> Automation</button>
+      <button class="nav-item" id="settings-nav"><span class="nav-icon">⚙</span> Settings</button>
+      <div class="side-label repo-side-title">SOURCES <span class="sidebar-source-actions"><button id="group-manager-button" class="icon-button" title="Organize sources into groups" aria-label="Organize sources into groups"><svg class="group-manager-icon" viewBox="0 0 20 18" aria-hidden="true"><path d="M2.5 5.25A1.75 1.75 0 0 1 4.25 3.5h4l1.8 1.8h5.7A1.75 1.75 0 0 1 17.5 7v7.25A1.75 1.75 0 0 1 15.75 16h-11A2.25 2.25 0 0 1 2.5 13.75z"/></svg></button><button id="sidebar-add" class="icon-button" title="Add source">＋</button></span></div>
       <div id="repo-list" class="repo-list"></div>
       <div class="sidebar-bottom">
         <span class="status-dot"></span>
@@ -33,7 +36,7 @@
         </div>
       </header>
 
-      <section class="hero">
+      <section class="hero" data-library-view>
         <div class="hero-copy">
           <div class="eyebrow"><span class="pulse"></span> YOUR REPOS, ONE SHELF</div>
           <h1>Package library<span class="accent">.</span></h1>
@@ -42,22 +45,22 @@
         <button class="primary-button add-source-button" id="add-source-button"><span>＋</span> Add a source</button>
       </section>
 
-      <section class="stats-row" aria-label="Library summary">
+      <section class="stats-row" aria-label="Library summary" data-library-view>
         <div class="stat-card"><div class="stat-icon purple">▦</div><div><span class="stat-value" id="stat-packages">0</span><span class="stat-label">PACKAGES AVAILABLE</span></div></div>
         <div class="stat-card"><div class="stat-icon blue">⌂</div><div><span class="stat-value" id="stat-repos">0</span><span class="stat-label">SOURCES ADDED</span></div></div>
         <div class="stat-card"><div class="stat-icon green">↓</div><div><span class="stat-value" id="stat-downloaded">0</span><span class="stat-label">SAVED LOCALLY</span></div></div>
         <div class="stat-card automation-card"><div class="stat-icon orange">↻</div><div><span class="stat-value" id="stat-automation">Off</span><span class="stat-label">AUTOMATION</span></div></div>
       </section>
 
-      <section class="automation-banner">
+      <section class="automation-banner" id="automation-banner" data-library-view>
         <div class="automation-symbol">↻</div>
         <div class="automation-info"><strong>Keep your shelf up to date</strong><span>Automatically check sources and download new or updated packages.</span></div>
         <button class="secondary-button" id="automation-button">Set up automation</button>
       </section>
 
-      <section class="packages-section">
+      <section class="packages-section" data-library-view>
         <div class="section-heading">
-          <div><div class="section-kicker">YOUR COLLECTION</div><h2 id="section-title">All packages <span id="section-count">0</span></h2></div>
+          <div><div class="section-kicker" id="collection-kicker">YOUR COLLECTION</div><h2 id="section-title">All packages <span id="section-count">0</span></h2></div>
           <div class="package-actions">
             <label class="search-box"><span>⌕</span><input id="search-input" type="search" placeholder="Search packages"></label>
             <button class="secondary-button refresh-button" id="refresh-button" title="Refresh sources">↻ <span>Refresh</span></button>
@@ -80,10 +83,138 @@
             <button class="secondary-button" id="empty-add-button">＋ Add your first source</button>
           </div>
         </div>
-        <div class="table-footer"><span id="visible-count">Showing 0 packages</span><span>Package files are saved only on this device.</span></div>
+        <div class="table-footer"><span id="visible-count">Showing 0 packages</span><div class="page-controls"><button class="secondary-button" id="previous-page" disabled>Previous</button><span id="page-count">Page 1 of 1</span><button class="secondary-button" id="next-page" disabled>Next</button></div><span>Package files are saved only on this device.</span></div>
       </section>
 
-      <footer class="footer"><span>RepoShelf <span class="footer-dot">·</span> Local by design</span><span id="download-location"></span></footer>
+      <footer class="footer" data-library-view><span>RepoShelf <span class="footer-dot">·</span> Local by design</span><span id="download-location"></span></footer>
+
+      <section id="settings-view" hidden>
+        <div class="settings-heading">
+          <div><div class="section-kicker">APPLICATION</div><h1>Settings</h1><p>Configure RepoShelf on this device.</p></div>
+        </div>
+        <section class="settings-card">
+          <div class="settings-card-icon">◉</div>
+          <div class="settings-card-content">
+            <h2>Diagnostics</h2>
+            <p>Write app requests and errors to a local log file. Logging is off by default.</p>
+            <label class="settings-toggle">
+              <span><strong>Enable application logging</strong><small>Log file: <code id="settings-log-path"></code></small></span>
+              <input type="checkbox" id="logging-enabled">
+              <span class="toggle"></span>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-icon">↓</div>
+          <div class="settings-card-content">
+            <h2>Download status</h2>
+            <p>Keep the movable download status panel visible and reconnect it to active downloads if the app view reloads or briefly loses its connection.</p>
+            <label class="settings-toggle">
+              <span><strong>Keep status visible until downloads finish</strong><small>The status panel remains movable and can still be minimized.</small></span>
+              <input type="checkbox" id="keep-download-status">
+              <span class="toggle"></span>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-icon">↻</div>
+          <div class="settings-card-content">
+            <h2>Automation suggestion</h2>
+            <p>Show a reminder to set up automatic package updates below your library statistics when automation is off.</p>
+            <label class="settings-toggle">
+              <span><strong>Show automation setup banner</strong><small>The banner is always hidden while automation is enabled.</small></span>
+              <input type="checkbox" id="show-automation-banner" checked>
+              <span class="toggle"></span>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-icon">◇</div>
+          <div class="settings-card-content">
+            <h2>Device compatibility details</h2>
+            <p>Choose whether to show the device information controls when adding a source. Repositories that require a manually authorized device ID will always show them.</p>
+            <label class="settings-toggle">
+              <span><strong>Show device information when adding a source</strong><small>Turn this off to hide the device compatibility section in the Add Repository dialog.</small></span>
+              <input type="checkbox" id="show-device-info-on-add" checked>
+              <span class="toggle"></span>
+            </label>
+            <div class="generated-id-row device-settings-id">
+              <code id="generated-device-id">Loading archive ID…</code>
+              <button class="secondary-button" id="generate-device-details">Generate new archive ID</button>
+            </div>
+            <small class="settings-help">RepoShelf uses this generated archive ID with the default Sileo-compatible profile. It is not tied to a physical device. Paid repositories continue using their manually authorized IDs. Generating a new ID updates sources using the generated profile on their next request.</small>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card-icon">▰</div>
+          <div class="settings-card-content">
+            <h2>Source groups</h2>
+            <p>Organize sources into nested groups. Group assignments and schedules are kept if grouping is disabled.</p>
+            <label class="settings-toggle">
+              <span><strong>Enable source grouping</strong><small>Show groups in the library, automation, and download queue.</small></span>
+              <input type="checkbox" id="grouping-enabled" checked>
+              <span class="toggle"></span>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card danger-card" id="uninstall-card">
+          <div class="settings-card-icon">!</div>
+          <div class="settings-card-content">
+            <h2>Uninstall RepoShelf</h2>
+            <p>Remove the app from your Applications menu. You can keep or remove downloaded packages and saved configuration.</p>
+            <button class="danger-button" id="uninstall-button">Uninstall RepoShelf…</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="automation-view" hidden>
+        <div class="settings-heading">
+          <div><div class="section-kicker">AUTOMATION</div><h1>Automation</h1><p>Keep your local package library in sync with your sources.</p></div>
+        </div>
+        <section class="settings-card">
+          <div class="settings-card-icon automation-dialog-icon">↻</div>
+          <div class="settings-card-content">
+            <h2>Automatic downloads</h2>
+            <p>RepoShelf checks your sources and downloads packages it hasn't saved yet, including newer versions. It runs while this local server is open.</p>
+            <form id="automation-form" class="automation-form">
+              <label class="settings-toggle">
+                <span><strong>Enable automatic downloads</strong><small>Automatically check for new and updated packages.</small></span>
+                <input type="checkbox" id="automation-enabled">
+                <span class="toggle"></span>
+              </label>
+              <label class="field-label" for="automation-interval">DEFAULT CHECK INTERVAL</label>
+              <input class="text-field automation-duration" id="automation-interval" type="text" value="1 day" placeholder="e.g. 3 minutes 40 seconds" autocomplete="off" required>
+              <small class="settings-help">Enter seconds, minutes, hours, days, or years (365 days). Maximum: 99 years. For example, “220 seconds” is normalized to “3 minutes 40 seconds”.</small>
+              <div class="source-schedules-heading">
+                <strong>Source-specific intervals</strong>
+                <small>Group intervals flow to nested groups and sources; a source override takes priority.</small>
+              </div>
+              <div id="automation-repo-intervals" class="automation-repo-intervals"></div>
+              <div id="automation-error" class="form-error" role="alert"></div>
+              <div class="dialog-actions automation-actions"><button type="button" class="secondary-button" id="run-now-button">Run now</button><button class="primary-button" type="submit">Save settings</button></div>
+            </form>
+          </div>
+        </section>
+      </section>
+
+      <section id="queue-view" hidden>
+        <div class="settings-heading">
+          <div><div class="section-kicker">DOWNLOADS</div><h1>Download queue</h1><p>Pause, resume, cancel, or remove packages waiting to download.</p></div>
+        </div>
+        <details id="queue-group-filter" class="queue-group-filter" hidden>
+          <summary>Show queues containing selected groups</summary>
+          <div id="queue-group-filter-options"></div>
+        </details>
+        <div id="queue-loading" class="queue-loading"><span class="job-spinner"></span><span>Loading download queue…</span></div>
+        <div id="queue-error" class="queue-error" role="alert" hidden></div>
+        <div id="queue-jobs" class="queue-jobs"></div>
+        <div id="queue-empty" class="empty-state" hidden><div class="empty-art">⇅</div><strong>No downloads yet</strong><p>Packages you start downloading will appear here.</p></div>
+      </section>
     </main>
   </div>
 
@@ -111,11 +242,13 @@
         <label class="field-label" for="repo-access-token">BEARER ACCESS TOKEN</label>
         <input class="text-field" id="repo-access-token" type="password" autocomplete="off" placeholder="Token issued by the provider">
       </div>
-      <label class="compat-toggle">
-        <input type="checkbox" id="device-profile-enabled" checked>
-        <span><strong>Send Sileo-compatible device details</strong><small>Enabled by default for repositories that require package-manager device headers.</small></span>
-      </label>
-      <div id="device-profile-fields" class="device-profile-fields" hidden>
+      <div id="device-info-section">
+        <label class="compat-toggle">
+          <input type="checkbox" id="device-profile-enabled" checked>
+          <span><strong>Send Sileo-compatible device details</strong><small>Enabled by default for repositories that require package-manager device headers.</small></span>
+        </label>
+        <div id="device-profile-fields" class="device-profile-fields" hidden>
+        <button class="secondary-button generate-profile-button" type="button" id="generate-add-profile">Generate compatible device details</button>
         <label class="field-label" for="device-model">DEVICE MODEL</label>
         <input class="text-field" id="device-model" type="text" value="iPhone15,2" autocomplete="off">
         <label class="field-label" for="device-os-version">IOS VERSION</label>
@@ -137,6 +270,7 @@
         <input class="text-field" id="device-id-value" type="text" placeholder="Generating local archive ID…" autocomplete="off" spellcheck="false">
         <p class="auth-hint" id="device-id-hint">A random 40-character archive ID is generated once and stored in your OS keyring. It is not read from or tied to a physical phone.</p>
         <p class="auth-hint">Sends model, iOS version, architecture, Sileo client headers, and device ID only to this HTTPS source.</p>
+        </div>
       </div>
       <p class="auth-hint">Credentials are kept in your desktop's secure keyring and sent only to this HTTPS repository host. Use only credentials and access granted by the provider.</p>
       <div id="source-error" class="form-error" role="alert"></div>
@@ -144,17 +278,39 @@
     </form>
   </dialog>
 
-  <dialog id="automation-dialog" class="dialog">
-    <form id="automation-form" method="dialog">
+  <dialog id="group-manager-dialog" class="dialog group-manager-dialog">
+    <form id="group-form">
       <button class="dialog-close" type="button" data-close>×</button>
-      <div class="dialog-icon automation-dialog-icon">↻</div>
-      <div class="section-kicker">AUTOMATION</div><h2>Stay in sync</h2>
-      <p>RepoShelf can check your sources and download packages it hasn't saved yet, including newer versions.</p>
-      <label class="toggle-row"><span><strong>Enable automatic downloads</strong><small>Runs while this local server is open.</small></span><input type="checkbox" id="automation-enabled"><span class="toggle"></span></label>
-      <label class="field-label" for="automation-interval">CHECK EVERY</label>
-      <select class="text-field" id="automation-interval"><option value="1">1 hour</option><option value="6">6 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="48">2 days</option><option value="168">7 days</option></select>
-      <div id="automation-error" class="form-error" role="alert"></div>
-      <div class="dialog-actions"><button type="button" class="secondary-button" id="run-now-button">Run now</button><button class="primary-button" type="submit">Save settings</button></div>
+      <div class="dialog-icon">▰</div>
+      <div class="section-kicker">SOURCE ORGANIZATION</div><h2>Manage groups</h2>
+      <p>Create nested groups, move groups within the hierarchy, and assign each source to a group. Removing a group keeps its sources and child groups by moving them to its parent.</p>
+      <div id="group-form-title" class="group-form-title">Create a group</div>
+      <label class="field-label" for="group-name">GROUP NAME</label>
+      <input class="text-field" id="group-name" maxlength="80" placeholder="e.g. Themes" required>
+      <label class="field-label" for="group-parent">PARENT GROUP</label>
+      <select class="text-field" id="group-parent"><option value="">No group</option></select>
+      <div id="group-error" class="form-error" role="alert"></div>
+      <div class="dialog-actions group-form-actions"><button class="secondary-button" type="button" id="group-cancel-edit" hidden>Cancel edit</button><button class="primary-button" id="group-save" type="submit">Create group</button></div>
+      <div class="group-manager-section"><strong>Groups</strong><div id="group-list"></div></div>
+      <div class="group-manager-section"><strong>Sources</strong><div id="repo-group-list"></div></div>
+    </form>
+  </dialog>
+
+  <dialog id="remove-repo-dialog" class="dialog">
+    <form id="remove-repo-form">
+      <button class="dialog-close" type="button" data-close>×</button>
+      <div class="dialog-icon uninstall-dialog-icon">!</div>
+      <div class="section-kicker">REMOVE SOURCE</div><h2 id="remove-repo-title">Remove repository?</h2>
+      <p id="remove-repo-detail"></p>
+      <label class="compat-toggle uninstall-data-toggle">
+        <input type="checkbox" id="delete-repo-downloads">
+        <span><strong>Also delete downloaded package files</strong><small>Only files downloaded from this source will be deleted. Leave unchecked to keep them on disk.</small></span>
+      </label>
+      <div id="remove-repo-error" class="form-error" role="alert"></div>
+      <div class="dialog-actions">
+        <button class="secondary-button" type="button" data-close>Cancel</button>
+        <button class="danger-button" type="submit" id="remove-repo-confirm">Remove source</button>
+      </div>
     </form>
   </dialog>
 
@@ -169,8 +325,51 @@
     </form>
   </dialog>
 
+  <dialog id="uninstall-choice-dialog" class="dialog">
+    <form id="uninstall-choice-form">
+      <button class="dialog-close" type="button" data-close>×</button>
+      <div class="dialog-icon uninstall-dialog-icon">!</div>
+      <div class="section-kicker">UNINSTALL</div><h2>Choose what to remove</h2>
+      <p>RepoShelf itself will be removed. Your downloaded packages and repository configuration are kept unless you select the option below.</p>
+      <label class="compat-toggle uninstall-data-toggle">
+        <input type="checkbox" id="delete-app-data">
+        <span><strong>Also delete downloaded tweaks and saved data</strong><small>Removes package downloads, repository configuration, logs, and other local app data.</small></span>
+      </label>
+      <div class="dialog-actions">
+        <button class="secondary-button" type="button" data-close>Cancel</button>
+        <button class="danger-button" type="submit">Continue…</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="uninstall-confirm-dialog" class="dialog">
+    <form id="uninstall-confirm-form">
+      <button class="dialog-close" type="button" data-close>×</button>
+      <div class="dialog-icon uninstall-dialog-icon">!</div>
+      <div class="section-kicker">FINAL CONFIRMATION</div><h2>Uninstall RepoShelf?</h2>
+      <p id="uninstall-confirm-detail"></p>
+      <div class="form-error" id="uninstall-error" role="alert"></div>
+      <div class="dialog-actions">
+        <button class="secondary-button" type="button" data-close>Cancel</button>
+        <button class="danger-button" type="submit" id="confirm-uninstall-button">Uninstall…</button>
+      </div>
+    </form>
+  </dialog>
+
   <div id="toast" class="toast" role="status"></div>
-  <div id="job-banner" class="job-banner" hidden><span class="job-spinner"></span><div><strong id="job-title">Downloading packages</strong><span id="job-status">Preparing…</span></div><div class="job-progress"><span id="job-progress-fill"></span></div></div>
+  <section id="job-banner" class="job-banner" aria-live="polite" hidden>
+    <div class="job-banner-heading" id="job-banner-handle">
+      <span class="job-spinner"></span>
+      <div class="job-heading-copy"><strong id="job-title">Downloading packages</strong><span id="job-status">Preparing…</span></div>
+      <strong id="job-percent">0%</strong>
+      <button class="job-minimize" id="job-minimize" type="button" aria-label="Minimize download status" aria-expanded="true">−</button>
+    </div>
+    <div class="job-current"><span id="job-current-name">Preparing download…</span><span id="job-current-size"></span></div>
+    <div class="job-progress" role="progressbar" aria-label="Download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="job-progress-fill"></span></div>
+    <div class="job-details"><span id="job-count">0 of 0 packages</span><span id="job-size-progress"></span><span id="job-rate"></span></div>
+    <div class="job-controls"><button class="danger-button" id="job-cancel">Cancel queue</button><button class="secondary-button" id="job-pause">Pause</button></div>
+    <div id="job-errors" class="job-errors" hidden></div>
+  </section>
   <script src="/app.js"></script>
 </body>
 </html>

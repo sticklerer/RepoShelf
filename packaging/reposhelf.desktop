@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=RepoShelf
+Comment=Browse and download jailbreak repository packages
+Exec=reposhelf
+TryExec=reposhelf
+Icon=io.github.sticklerer.RepoShelf
+Terminal=false
+Categories=Utility;Network;
+StartupNotify=true

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.sticklerer.RepoShelf</id>
+  <name>RepoShelf</name>
+  <summary>Browse and download iOS jailbreak repository packages</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <developer id="io.github.sticklerer">
+    <name>RepoShelf contributors</name>
+  </developer>
+  <description>
+    <p>A local desktop package manager for browsing jailbreak repositories and keeping package files on your computer.</p>
+    <p>Beta software written with AI assistance. Review packages and repository sources before use.</p>
+  </description>
+  <launchable type="desktop-id">io.github.sticklerer.RepoShelf.desktop</launchable>
+  <url type="homepage">https://github.com/sticklerer/RepoShelf</url>
+</component>

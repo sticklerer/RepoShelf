@@ -1,0 +1,144 @@
+name: Build Linux release packages
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    name: Debian and Ubuntu package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Build deb package
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p dist
+          packaging/build-deb.sh "$RELEASE_TAG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*
+          if-no-files-found: error
+
+  rpm:
+    name: Fedora package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Install RPM build tools
+        run: sudo apt-get update && sudo apt-get install --yes rpm
+      - name: Build rpm package
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p dist
+          packaging/build-rpm.sh "$RELEASE_TAG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: dist/*
+          if-no-files-found: error
+
+  arch:
+    name: Arch Linux package and AUR recipe
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Build Arch package and AUR metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p dist
+          docker run --rm \
+            -e RELEASE_TAG \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            archlinux:base-devel \
+            bash -euxo pipefail -c '
+              pacman -Syu --noconfirm --needed base-devel git curl python python-pyqt6 python-pyqt6-webengine python-keyring
+              tag="$RELEASE_TAG"
+              pkgver="${tag#v}"
+              pkgver="${pkgver//-/_}"
+              archive_url="https://github.com/sticklerer/RepoShelf/archive/refs/tags/${tag}.tar.gz"
+              curl --fail --location --retry 3 "$archive_url" -o /tmp/reposhelf-source.tar.gz
+              checksum="$(sha256sum /tmp/reposhelf-source.tar.gz | cut -d " " -f 1)"
+              mkdir -p /tmp/reposhelf-aur
+              sed -e "s/^pkgver=.*/pkgver=${pkgver}/" \
+                  -e "s/^sha256sums=.*/sha256sums=('${checksum}')/" \
+                  /workspace/packaging/arch/PKGBUILD > /tmp/reposhelf-aur/PKGBUILD
+              useradd --create-home builder
+              chown -R builder:builder /tmp/reposhelf-aur
+              runuser -u builder -- bash -c "cd /tmp/reposhelf-aur && makepkg --printsrcinfo > .SRCINFO && makepkg --noconfirm"
+              install -Dm644 /tmp/reposhelf-aur/PKGBUILD /workspace/dist/PKGBUILD
+              install -Dm644 /tmp/reposhelf-aur/.SRCINFO /workspace/dist/.SRCINFO
+              install -Dm644 /tmp/reposhelf-aur/*.pkg.tar.zst /workspace/dist/
+              tar -czf /workspace/dist/reposhelf-aur.tar.gz -C /tmp/reposhelf-aur PKGBUILD .SRCINFO
+            '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: dist/*
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Install Flatpak build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install --system --assumeyes flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+      - name: Build Flatpak bundle
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          archive_url="https://github.com/sticklerer/RepoShelf/archive/refs/tags/${RELEASE_TAG}.tar.gz"
+          curl --fail --location --retry 3 "$archive_url" -o /tmp/reposhelf-source.tar.gz
+          checksum="$(sha256sum /tmp/reposhelf-source.tar.gz | cut -d ' ' -f 1)"
+          sed -e "s|@TAG@|${RELEASE_TAG}|g" \
+              -e "s|@SHA256@|${checksum}|g" \
+              packaging/flatpak/io.github.sticklerer.RepoShelf.yml \
+              > /tmp/io.github.sticklerer.RepoShelf.yml
+          flatpak-builder --force-clean --user --install-deps-from=flathub \
+            --repo=flatpak-repo flatpak-build /tmp/io.github.sticklerer.RepoShelf.yml
+          mkdir -p dist
+          flatpak build-bundle flatpak-repo dist/RepoShelf.flatpak io.github.sticklerer.RepoShelf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: dist/*
+          if-no-files-found: error
+
+  publish-assets:
+    name: Attach packages to release
+    needs: [deb, rpm, arch, flatpak]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Generate package checksums
+        working-directory: release-assets
+        run: sha256sum -- * > SHA256SUMS
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" release-assets/* --clobber

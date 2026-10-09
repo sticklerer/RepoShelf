@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QSystemTrayIcon,
-    QToolBar,
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
@@ -44,15 +43,11 @@ class RepoShelfWindow(QMainWindow):
         self.web_view.setUrl(QUrl(APP_URL))
         self.setCentralWidget(self.web_view)
 
-        toolbar = QToolBar("App actions", self)
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-        uninstall_action = QAction("Uninstall RepoShelf…", self)
-        uninstall_action.triggered.connect(self.confirm_uninstall)
-        toolbar.addAction(uninstall_action)
-
         self._start_server()
         self._create_tray()
+        self._uninstall_timer = QTimer(self)
+        self._uninstall_timer.timeout.connect(self._process_uninstall_request)
+        self._uninstall_timer.start(250)
 
     def _start_server(self) -> None:
         server.load_state()
@@ -83,9 +78,6 @@ class RepoShelfWindow(QMainWindow):
         show_action = QAction("Open RepoShelf", self)
         show_action.triggered.connect(self.show_window)
         menu.addAction(show_action)
-        uninstall_action = QAction("Uninstall RepoShelf…", self)
-        uninstall_action.triggered.connect(self.confirm_uninstall)
-        menu.addAction(uninstall_action)
         menu.addSeparator()
         quit_action = QAction("Quit RepoShelf", self)
         quit_action.triggered.connect(self.quit_app)
@@ -118,7 +110,10 @@ class RepoShelfWindow(QMainWindow):
             )
             self._has_hidden = True
 
-    def confirm_uninstall(self) -> None:
+    def _process_uninstall_request(self) -> None:
+        delete_data = server.consume_uninstall_request()
+        if delete_data is None:
+            return
         if not UNINSTALL_PATH.is_file():
             QMessageBox.critical(
                 self,
@@ -126,28 +121,7 @@ class RepoShelfWindow(QMainWindow):
                 "The RepoShelf uninstaller is missing. Reinstall the app to restore it.",
             )
             return
-
-        dialog = QMessageBox(self)
-        dialog.setWindowTitle("Uninstall RepoShelf")
-        dialog.setIcon(QMessageBox.Icon.Warning)
-        dialog.setText("Remove RepoShelf from this computer?")
-        dialog.setInformativeText(
-            "Your repository settings and downloaded packages will be kept unless you choose to delete them."
-        )
-        keep_button = dialog.addButton(
-            "Uninstall, keep data", QMessageBox.ButtonRole.AcceptRole
-        )
-        delete_button = dialog.addButton(
-            "Uninstall and delete data", QMessageBox.ButtonRole.DestructiveRole
-        )
-        dialog.addButton(QMessageBox.StandardButton.Cancel)
-        dialog.exec()
-
-        clicked = dialog.clickedButton()
-        if clicked != keep_button and clicked != delete_button:
-            return
-
-        arguments = ["--purge-data"] if clicked == delete_button else []
+        arguments = ["--purge-data"] if delete_data else []
         started, _process_id = QProcess.startDetached(str(UNINSTALL_PATH), arguments)
         if not started:
             QMessageBox.critical(
@@ -176,7 +150,8 @@ def main() -> int:
     app.setWindowIcon(QIcon(str(ICON_PATH)))
     app.setQuitOnLastWindowClosed(False)
 
-    lock_path = ROOT / "reposhelf.lock"
+    server.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = server.DATA_DIR / "reposhelf.lock"
     lock = QLockFile(str(lock_path))
     if not lock.tryLock(0):
         QMessageBox.information(
