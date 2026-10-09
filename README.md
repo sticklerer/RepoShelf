@@ -4,6 +4,8 @@ RepoShelf is a small local web app for browsing iOS jailbreak package repositori
 
 > **AI-generated software:** RepoShelf was created with AI assistance. Review the code and verify downloads with sources you trust before using it; the project is provided as-is and is not affiliated with Apple or jailbreak repository providers.
 
+![alt text](https://github.com/sticklerer/RepoShelf/blob/main/showcase.png?raw=true)
+
 ## Install the desktop app (Linux)
 
 RepoShelf opens in its own desktop window and adds a system-tray icon. Closing the window hides it; choose **Quit RepoShelf** from the tray menu to stop it.
