@@ -95,6 +95,50 @@
       <p>Paste the base URL for a jailbreak package repository. RepoShelf looks for its Packages index.</p>
       <label class="field-label" for="repo-url">REPOSITORY URL</label>
       <input class="text-field" id="repo-url" type="url" placeholder="https://repo.example.com/" required>
+      <label class="field-label" for="repo-auth-method">REPOSITORY AUTHORIZATION</label>
+      <select class="text-field" id="repo-auth-method">
+        <option value="none">Public repository</option>
+        <option value="basic">Repository username and password</option>
+        <option value="bearer">Provider-issued access token</option>
+      </select>
+      <div id="repo-basic-fields" hidden>
+        <label class="field-label" for="repo-username">REPOSITORY USERNAME</label>
+        <input class="text-field" id="repo-username" type="text" autocomplete="username" placeholder="Username from the provider">
+        <label class="field-label" for="repo-password">REPOSITORY PASSWORD</label>
+        <input class="text-field" id="repo-password" type="password" autocomplete="current-password" placeholder="Password or app password">
+      </div>
+      <div id="repo-token-fields" hidden>
+        <label class="field-label" for="repo-access-token">BEARER ACCESS TOKEN</label>
+        <input class="text-field" id="repo-access-token" type="password" autocomplete="off" placeholder="Token issued by the provider">
+      </div>
+      <label class="compat-toggle">
+        <input type="checkbox" id="device-profile-enabled" checked>
+        <span><strong>Send Sileo-compatible device details</strong><small>Enabled by default for repositories that require package-manager device headers.</small></span>
+      </label>
+      <div id="device-profile-fields" class="device-profile-fields" hidden>
+        <label class="field-label" for="device-model">DEVICE MODEL</label>
+        <input class="text-field" id="device-model" type="text" value="iPhone15,2" autocomplete="off">
+        <label class="field-label" for="device-os-version">IOS VERSION</label>
+        <input class="text-field" id="device-os-version" type="text" value="17.0" autocomplete="off">
+        <label class="field-label" for="device-architecture">DEVICE ARCHITECTURE</label>
+        <select class="text-field" id="device-architecture">
+          <option value="iphoneos-arm64">iphoneos-arm64</option>
+          <option value="iphoneos-arm64e">iphoneos-arm64e</option>
+          <option value="iphoneos-arm">iphoneos-arm</option>
+        </select>
+        <label class="field-label" for="device-client-version">SILEO VERSION</label>
+        <input class="text-field" id="device-client-version" type="text" value="2.4.4" autocomplete="off">
+        <label class="compat-toggle id-mode-toggle">
+          <input type="checkbox" id="manual-device-id">
+          <span><strong>Enter device ID manually</strong><small>Paid repositories require the device ID you authorized with the provider.</small></span>
+        </label>
+        <div id="paid-repo-notice" class="notice" hidden>This repository requires a manually entered, provider-authorized device ID. RepoShelf will not generate one for it.</div>
+        <label class="field-label" for="device-id-value">DEVICE ID</label>
+        <input class="text-field" id="device-id-value" type="text" placeholder="Generating local archive ID…" autocomplete="off" spellcheck="false">
+        <p class="auth-hint" id="device-id-hint">A random 40-character archive ID is generated once and stored in your OS keyring. It is not read from or tied to a physical phone.</p>
+        <p class="auth-hint">Sends model, iOS version, architecture, Sileo client headers, and device ID only to this HTTPS source.</p>
+      </div>
+      <p class="auth-hint">Credentials are kept in your desktop's secure keyring and sent only to this HTTPS repository host. Use only credentials and access granted by the provider.</p>
       <div id="source-error" class="form-error" role="alert"></div>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close>Cancel</button><button class="primary-button" type="submit" id="source-submit">Add source</button></div>
     </form>

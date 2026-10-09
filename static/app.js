@@ -2,6 +2,17 @@ const state = { repos: [], filter: "all", search: "", selectedRepo: null, select
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const allPackages = () => state.repos.flatMap((repo) => repo.packages);
+function visiblePackages() {
+  const selectedRepo = state.repos.find((repo) => repo.id === state.selectedRepo);
+  let visible = selectedRepo ? selectedRepo.packages : allPackages();
+  if (state.filter === "not-downloaded") visible = visible.filter((item) => !item.downloaded);
+  if (state.filter === "downloaded") visible = visible.filter((item) => item.downloaded);
+  if (state.search) {
+    const search = state.search.toLowerCase();
+    visible = visible.filter((item) => `${item.name} ${item.description} ${item.repo_name} ${item.version}`.toLowerCase().includes(search));
+  }
+  return visible;
+}
 
 function toast(message, isError = false) {
   const element = $("#toast");
@@ -55,13 +66,7 @@ function render() {
     </div>`).join("");
 
   const selectedRepo = state.repos.find((repo) => repo.id === state.selectedRepo);
-  let visible = selectedRepo ? selectedRepo.packages : packages;
-  if (state.filter === "not-downloaded") visible = visible.filter((item) => !item.downloaded);
-  if (state.filter === "downloaded") visible = visible.filter((item) => item.downloaded);
-  if (state.search) {
-    const search = state.search.toLowerCase();
-    visible = visible.filter((item) => `${item.name} ${item.description} ${item.repo_name} ${item.version}`.toLowerCase().includes(search));
-  }
+  const visible = visiblePackages();
   visible.sort((a, b) => a.name.localeCompare(b.name));
   $("#current-location").textContent = selectedRepo ? selectedRepo.name : "All packages";
   $("#section-title").childNodes[0].textContent = selectedRepo ? selectedRepo.name : "All packages ";
@@ -86,10 +91,23 @@ function render() {
     ? "Try a different search or filter, or refresh your repository sources."
     : "Add a jailbreak repository to browse its packages and start your local library.";
   $("#empty-add-button").style.display = packages.length ? "none" : "inline-flex";
+  updateSelectionControls();
+  $("#get-all-button").disabled = visible.every((item) => item.downloaded);
+}
+
+function updateSelectionControls() {
+  const packages = allPackages();
+  const packageIds = new Set(packages.map((item) => item.id));
+  for (const id of state.selected) {
+    if (!packageIds.has(id)) state.selected.delete(id);
+  }
   const selectedPending = packages.filter((item) => state.selected.has(item.id) && !item.downloaded);
   $("#get-selected-button").hidden = state.selected.size === 0;
   $("#get-selected-button").disabled = selectedPending.length === 0;
-  $("#get-all-button").disabled = visible.filter((item) => !item.downloaded).length === 0;
+  const visibleIds = [...document.querySelectorAll(".row-check")].map((checkbox) => checkbox.dataset.id);
+  const selectedVisible = visibleIds.filter((id) => state.selected.has(id)).length;
+  $("#select-visible").checked = visibleIds.length > 0 && selectedVisible === visibleIds.length;
+  $("#select-visible").indeterminate = selectedVisible > 0 && selectedVisible < visibleIds.length;
 }
 
 async function loadState() {
@@ -143,11 +161,121 @@ function watchJob(jobId, title) {
 }
 
 function showSourceDialog() {
+  state.deviceIdRequest = (state.deviceIdRequest || 0) + 1;
+  const requestId = state.deviceIdRequest;
   $("#source-error").textContent = "";
+  $("#repo-url").value = "";
+  $("#repo-auth-method").value = "none";
+  $("#repo-username").value = "";
+  $("#repo-password").value = "";
+  $("#repo-access-token").value = "";
+  $("#device-profile-enabled").checked = true;
+  $("#device-model").value = "iPhone15,2";
+  $("#device-os-version").value = "17.0";
+  $("#device-architecture").value = "iphoneos-arm64";
+  $("#device-client-version").value = "2.4.4";
+  $("#device-id-value").value = "";
+  $("#device-id-value").readOnly = true;
+  $("#manual-device-id").checked = false;
+  $("#manual-device-id").disabled = false;
+  updateAuthFields();
+  updatePaidRepositoryMode();
+  updateDeviceProfileFields();
   openDialog($("#source-dialog"));
+  if (!$("#manual-device-id").checked) {
+    api("/api/device-profile").then((result) => {
+      if ($("#source-dialog").open && requestId === state.deviceIdRequest && !$("#manual-device-id").checked) {
+        $("#device-id-value").value = result.generated_device_id;
+      }
+    }).catch((error) => {
+      if ($("#source-dialog").open && requestId === state.deviceIdRequest) {
+        $("#device-id-value").value = "";
+        $("#device-id-value").placeholder = error.message;
+      }
+    });
+  }
   $("#repo-url").focus();
 }
 
+function updateAuthFields() {
+  const method = $("#repo-auth-method").value;
+  $("#repo-basic-fields").hidden = method !== "basic";
+  $("#repo-token-fields").hidden = method !== "bearer";
+  $("#repo-username").required = method === "basic";
+  $("#repo-password").required = method === "basic";
+  $("#repo-access-token").required = method === "bearer";
+}
+
+function updateDeviceProfileFields() {
+  const enabled = $("#device-profile-enabled").checked;
+  const paid = requiresManualDeviceId($("#repo-url").value);
+  $("#device-profile-fields").hidden = !enabled;
+  $("#device-model").required = enabled;
+  $("#device-os-version").required = enabled;
+  $("#device-client-version").required = enabled;
+  $("#device-profile-enabled").disabled = paid;
+  $("#manual-device-id").disabled = paid;
+  $("#device-id-value").readOnly = !$("#manual-device-id").checked;
+  $("#device-id-value").required = enabled && $("#manual-device-id").checked;
+  $("#paid-repo-notice").hidden = !requiresManualDeviceId($("#repo-url").value);
+  $("#device-id-hint").textContent = $("#manual-device-id").checked
+    ? "Enter the device ID already authorized with this paid repository. RepoShelf stores it in your OS keyring."
+    : "A random 40-character archive ID is generated once and stored in your OS keyring. It is not read from or tied to a physical phone.";
+}
+
+function requiresManualDeviceId(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
+    return ["havoc.app", "chariz.com", "yourepo.com"].some(
+      (domain) => host === domain || host.endsWith(`.${domain}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function updatePaidRepositoryMode() {
+  if (requiresManualDeviceId($("#repo-url").value)) {
+    if (!$("#manual-device-id").checked) $("#device-id-value").value = "";
+    $("#manual-device-id").checked = true;
+    $("#device-profile-enabled").checked = true;
+    $("#manual-device-id").disabled = true;
+    $("#device-profile-enabled").disabled = true;
+  } else {
+    $("#manual-device-id").disabled = false;
+    $("#device-profile-enabled").disabled = false;
+  }
+  updateDeviceProfileFields();
+}
+
+$("#source-dialog").addEventListener("close", () => {
+  state.deviceIdRequest = (state.deviceIdRequest || 0) + 1;
+  $("#repo-username").value = "";
+  $("#repo-password").value = "";
+  $("#repo-access-token").value = "";
+  $("#device-id-value").value = "";
+});
+
+$("#repo-auth-method").addEventListener("change", updateAuthFields);
+$("#device-profile-enabled").addEventListener("change", () => {
+  if ($("#device-profile-enabled").checked) updatePaidRepositoryMode();
+  else updateDeviceProfileFields();
+});
+$("#manual-device-id").addEventListener("change", () => {
+  state.deviceIdRequest = (state.deviceIdRequest || 0) + 1;
+  const requestId = state.deviceIdRequest;
+  if ($("#manual-device-id").checked) $("#device-id-value").value = "";
+  else if (!requiresManualDeviceId($("#repo-url").value)) {
+    api("/api/device-profile").then((result) => {
+      if ($("#source-dialog").open && requestId === state.deviceIdRequest && !$("#manual-device-id").checked) {
+        $("#device-id-value").value = result.generated_device_id;
+      }
+    })
+      .catch((error) => toast(error.message, true));
+  }
+  updateDeviceProfileFields();
+});
+$("#repo-url").addEventListener("input", updatePaidRepositoryMode);
 $("#add-source-button").addEventListener("click", showSourceDialog);
 $("#sidebar-add").addEventListener("click", showSourceDialog);
 $("#empty-add-button").addEventListener("click", showSourceDialog);
@@ -167,12 +295,46 @@ $("#source-form").addEventListener("submit", async (event) => {
   button.textContent = "Checking source…";
   $("#source-error").textContent = "";
   try {
-    const result = await api("/api/repos", { method: "POST", body: JSON.stringify({ url: $("#repo-url").value.trim() }) });
+    const method = $("#repo-auth-method").value;
+    const auth = { method };
+    if (method === "basic") {
+      auth.username = $("#repo-username").value;
+      auth.secret = $("#repo-password").value;
+    } else if (method === "bearer") {
+      auth.secret = $("#repo-access-token").value;
+    }
+    const deviceProfile = {
+      enabled: $("#device-profile-enabled").checked,
+      client: "sileo",
+      manual_device_id: $("#manual-device-id").checked,
+    };
+    if (deviceProfile.enabled) {
+      deviceProfile.model = $("#device-model").value.trim();
+      deviceProfile.os_version = $("#device-os-version").value.trim();
+      deviceProfile.architecture = $("#device-architecture").value;
+      deviceProfile.client_version = $("#device-client-version").value.trim();
+      if (deviceProfile.manual_device_id) {
+        deviceProfile.device_id = $("#device-id-value").value.trim();
+      }
+    }
+    const result = await api("/api/repos", {
+      method: "POST",
+      body: JSON.stringify({
+        url: $("#repo-url").value.trim(),
+        auth,
+        device_profile: deviceProfile,
+      }),
+    });
     state.repos = result.state.repos;
     state.selectedRepo = null;
     render();
     $("#source-dialog").close();
     $("#repo-url").value = "";
+    $("#repo-username").value = "";
+    $("#repo-password").value = "";
+    $("#repo-access-token").value = "";
+    $("#device-profile-enabled").checked = false;
+    updateDeviceProfileFields();
     toast(`Added source with ${result.package_count} packages.`);
   } catch (error) {
     $("#source-error").textContent = error.message;
@@ -220,20 +382,23 @@ $("#refresh-button").addEventListener("click", async () => {
   button.disabled = true;
   button.querySelector("span").textContent = "Refreshing…";
   const errors = [];
-  for (const repo of state.repos) {
-    try { await api(`/api/repos/${repo.id}/refresh`, { method: "POST", body: "{}" }); }
-    catch (error) { errors.push(`${repo.name}: ${error.message}`); }
+  try {
+    for (const repo of state.repos) {
+      try { await api(`/api/repos/${repo.id}/refresh`, { method: "POST", body: "{}" }); }
+      catch (error) { errors.push(`${repo.name}: ${error.message}`); }
+    }
+    await loadState();
+    toast(errors.length ? errors.join(" · ") : "Sources refreshed.", errors.length > 0);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.querySelector("span").textContent = "Refresh";
   }
-  await loadState();
-  button.disabled = false;
-  button.querySelector("span").textContent = "Refresh";
-  toast(errors.length ? errors.join(" · ") : "Sources refreshed.");
 });
 
 $("#get-all-button").addEventListener("click", () => {
-  const packages = state.selectedRepo
-    ? state.repos.find((repo) => repo.id === state.selectedRepo)?.packages || []
-    : allPackages();
+  const packages = visiblePackages();
   const pending = packages.filter((item) => !item.downloaded);
   startJob(pending.map((item) => item.id), `Downloading ${pending.length} packages`);
 });
@@ -276,6 +441,7 @@ $("#package-rows").addEventListener("change", (event) => {
   if (!event.target.matches(".row-check")) return;
   if (event.target.checked) state.selected.add(event.target.dataset.id);
   else state.selected.delete(event.target.dataset.id);
+  updateSelectionControls();
 });
 $("#package-rows").addEventListener("click", (event) => {
   const button = event.target.closest("[data-download]");

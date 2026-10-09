@@ -2,6 +2,8 @@
 
 RepoShelf is a small local web app for browsing iOS jailbreak package repositories and keeping copies of their `.deb` packages on your computer.
 
+> **AI-generated software:** RepoShelf was created with AI assistance. Review the code and verify downloads with sources you trust before using it; the project is provided as-is and is not affiliated with Apple or jailbreak repository providers.
+
 ## Install the desktop app (Linux)
 
 RepoShelf opens in its own desktop window and adds a system-tray icon. Closing the window hides it; choose **Quit RepoShelf** from the tray menu to stop it.
@@ -42,9 +44,10 @@ The command removes the app and desktop launcher but keeps settings and download
 
 ## Run the web server directly (optional)
 
-Requires Python 3.10 or newer and no third-party packages. This mode runs in a terminal, without the desktop window or tray.
+Requires Python 3.10 or newer. The local web server itself uses only the standard library; installing `keyring` is required to use saved credentials or Sileo-compatible device profiles. This mode runs in a terminal, without the desktop window or tray.
 
 ```sh
+python3 -m pip install keyring
 python3 server.py
 ```
 
@@ -56,6 +59,19 @@ Open [http://127.0.0.1:8765](http://127.0.0.1:8765). Stop the server with `Ctrl+
 - Browse and search the package list, select individual packages, or use **Get all** to download every package in the current view.
 - Downloaded `.deb` files are stored in `data/downloads/`; repo settings and package indexes are stored in `data/state.json`.
 - **Automation** checks sources on the chosen schedule and downloads packages that are new or have a version not already saved. It works only while RepoShelf is running. **Run now** starts a check immediately.
+- RepoShelf spaces out requests to each repository host, caches repository indexes, and honors `Retry-After` with bounded retries for temporary server errors. Requests identify themselves as RepoShelf; use only repository-supported credentials and device IDs authorized for your account.
+- Repository sources must use HTTPS so package indexes and downloads cannot be silently replaced in transit. Existing HTTP sources must be removed and re-added with their HTTPS URL.
+- For private APT repositories, **Add a source** supports HTTP Basic credentials or a provider-issued API token using standard bearer-token authorization. Credentials are kept in your operating system's keyring, not in `data/state.json`; the keyring must be unlocked while RepoShelf accesses the source.
+- New sources default to a Sileo-compatible request profile with editable model, iOS version, architecture, and client version. RepoShelf generates one random 40-character archive ID, stores it in the OS keyring, and sends it as `X-Unique-ID` along with the documented `X-Machine`, `X-Firmware`, and `Sec-CH-UA-*` headers. This ID is local to RepoShelf; it is not read from or tied to a physical device. For Havoc, Chariz, and YouRepo hostnames, automatic IDs are disabled: enter the device ID that the provider has authorized for your account. Other paid/private repos can be switched to manual-ID mode in the add-source form. Device IDs and credentials stay in the OS keyring and are sent only over HTTPS. See [Sileo's request-header implementation](https://github.com/Sileo/Sileo/blob/master/Sileo/Backend/URL%20Manager/URLManager.swift) and [device-header definitions](https://github.com/Sileo/Sileo/blob/master/Sileo/Backend/Extensions/UIDevice%2BPrivate.swift).
+- This is not a provider-specific Havoc, Chariz, or YouRepo web-login integration: website OAuth, purchase-account APIs, device registration, and custom repository protocols are not guessed or emulated. Use an official token or repository credential only if the provider documents it for the APT repository endpoint. Provider-specific sign-in needs a documented, supported API from that provider.
 - Remove a source with the **×** beside its name in the sidebar. Removing a source does not delete downloaded files.
 
 RepoShelf verifies downloaded files against repository-provided size and SHA256 metadata when available. It does not install packages, verify repository signatures, or run package contents.
+
+## Run tests
+
+Run the local server and package-download tests with Python's standard library test runner:
+
+```sh
+python3 -m unittest discover -s tests -v
+```
